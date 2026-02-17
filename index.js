@@ -17,11 +17,16 @@ const userCache = new Map();
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
-    const num = numero.replace(/\D/g, '');
+    let num = numero.replace(/\D/g, '');
+    
+    // Se começar com 55 (código do Brasil), remove para comparar com banco
+    if (num.startsWith('55')) {
+        num = num.substring(2);
+    }
+    
     if (userCache.has(num)) return userCache.get(num);
     
     try {
-        // Única chamada - verifica se o número existe no banco
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
         userCache.set(num, res.data);
         return res.data;
