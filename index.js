@@ -17,13 +17,7 @@ const userCache = new Map();
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
-    let num = numero.replace(/\D/g, '');
-    
-    // Se começar com 55 (código do Brasil), remove para comparar com banco
-    if (num.startsWith('55')) {
-        num = num.substring(2);
-    }
-    
+    const num = numero.replace(/\D/g, '');
     if (userCache.has(num)) return userCache.get(num);
     
     try {
