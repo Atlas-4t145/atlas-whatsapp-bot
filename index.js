@@ -4,18 +4,25 @@ const moment = require('moment');
 const app = express();
 app.use(express.json());
 
+// ===========================================
+// CONFIGURAÇÕES DO Z-API
+// ===========================================
+const ZAPI_INSTANCE_ID = '3EEE292351BD9148D7FF625405C53502';
+const ZAPI_TOKEN = '035FAAEF857C90111DD6D6DA';
+const ZAPI_URL = 'https://api.z-api.io';
+
 const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
-// BUSCAR DADOS DO USUÁRIO PELO NÚMERO
+// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
     const num = numero.replace(/\D/g, '');
     if (userCache.has(num)) return userCache.get(num);
     
     try {
-        // PRECISA CRIAR ESSA ROTA NO RENDER
+        // Única chamada - verifica se o número existe no banco
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
         userCache.set(num, res.data);
         return res.data;
@@ -25,48 +32,39 @@ async function buscarUsuario(numero) {
 }
 
 // ===========================================
-// BUSCAR TRANSAÇÕES (COM ADMIN)
+// BUSCAR TRANSAÇÕES DO USUÁRIO (VIA ROTA PÚBLICA)
 // ===========================================
-let adminToken = null;
-
-async function getAdminToken() {
-    if (adminToken) return adminToken;
-    const res = await axios.post(`${API_URL}/login`, {
-        phone: '11999999999',
-        password: 'admin123'
-    });
-    adminToken = res.data.token;
-    return adminToken;
-}
-
 async function buscarTransacoes(userId, mes, ano) {
-    const token = await getAdminToken();
-    const res = await axios.get(`${API_URL}/transactions/${ano}/${mes}`, {
-        headers: { Authorization: `Bearer ${token}` }
-    });
-    return res.data.filter(t => t.user_id === userId);
+    try {
+        const res = await axios.get(`${API_URL}/transactions/${ano}/${mes}?user_id=${userId}`);
+        return res.data;
+    } catch {
+        return [];
+    }
 }
 
 async function buscarTodasTransacoes(userId) {
-    const token = await getAdminToken();
-    const res = await axios.get(`${API_URL}/transactions`, {
-        headers: { Authorization: `Bearer ${token}` }
-    });
-    return res.data.filter(t => t.user_id === userId);
+    try {
+        const res = await axios.get(`${API_URL}/transactions?user_id=${userId}`);
+        return res.data;
+    } catch {
+        return [];
+    }
 }
 
 // ===========================================
 // CRIAR TRANSAÇÃO
 // ===========================================
 async function criarTransacao(userId, dados) {
-    const token = await getAdminToken();
-    const res = await axios.post(`${API_URL}/transactions`, {
-        user_id: userId,
-        ...dados
-    }, {
-        headers: { Authorization: `Bearer ${token}` }
-    });
-    return res.data;
+    try {
+        const res = await axios.post(`${API_URL}/transactions`, {
+            user_id: userId,
+            ...dados
+        });
+        return res.data;
+    } catch {
+        return null;
+    }
 }
 
 // ===========================================
@@ -84,7 +82,7 @@ function formatarData(data) {
 // FUNÇÃO PRINCIPAL - 22 FUNCIONALIDADES
 // ===========================================
 async function processar(numero, mensagem) {
-    // 1. VERIFICAR NÚMERO
+    // 1. VERIFICAR NÚMERO (ÚNICA VALIDAÇÃO)
     const usuario = await buscarUsuario(numero);
     if (!usuario) {
         return "❌ Número não autorizado. Acesse o portal Atlas para vincular seu WhatsApp.";
@@ -530,7 +528,7 @@ async function processar(numero, mensagem) {
             return '➡️';
         }
         
-        return `📊 *COMPARATIVO*\n`;
+        return `📊 *COMPARATIVO*\n` +
         `${mesPassado}/${anoPassado} → ${mesAtual}/${anoAtual}\n` +
         `━━━━━━━━━━━━━━\n\n` +
         `💰 Receitas:\n` +
@@ -658,7 +656,7 @@ async function processar(numero, mensagem) {
     }
     
     // ===========================================
-    // FUNCIONALIDADE 22: Ajuda
+    // FUNCIONALIDADE 21: Ajuda
     // ===========================================
     if (texto === 'ajuda' || texto === 'help' || texto === 'comandos') {
         return `🤖 *COMANDOS DO ATLAS*\n\n` +
@@ -689,19 +687,26 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// WEBHOOK
+// WEBHOOK - RECEBE DO Z-API E ENVIA RESPOSTA
 // ===========================================
 app.post('/webhook', async (req, res) => {
     try {
-        const { number, message } = req.body;
-        console.log(`📩 ${number}: ${message}`);
+        // O Z-API envia a mensagem no body
+        const { phone, text } = req.body;
         
-        const resposta = await processar(number, message);
+        console.log(`📩 ${phone}: ${text}`);
         
-        res.json({ 
-            success: true,
-            response: resposta 
+        // Processa a mensagem
+        const resposta = await processar(phone, text);
+        
+        // Envia a resposta de volta via Z-API
+        await axios.post(`${ZAPI_URL}/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}/send-text`, {
+            phone: phone,
+            message: resposta
         });
+        
+        // Responde pro Z-API que recebeu (não é a resposta pro usuário)
+        res.json({ success: true });
         
     } catch (error) {
         console.error('Erro:', error);
@@ -710,7 +715,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
-// ROTA DE TESTE
+// ROTA DE TESTE (opcional - pode manter)
 // ===========================================
 app.get('/teste/:numero/:msg', async (req, res) => {
     const resposta = await processar(req.params.numero, req.params.msg);
@@ -729,7 +734,7 @@ app.get('/health', (req, res) => {
 });
 
 // ===========================================
-// FUNCIONALIDADE 20: AVISOS DIÁRIOS (CRON)
+// FUNCIONALIDADE 21: AVISOS DIÁRIOS (CRON)
 // ===========================================
 app.get('/cron/avisos', async (req, res) => {
     const { key } = req.query;
@@ -737,7 +742,7 @@ app.get('/cron/avisos', async (req, res) => {
         return res.status(401).json({ error: 'Não autorizado' });
     }
     
-    // Implementar avisos diários
+    // TODO: Implementar avisos diários
     // Buscar todos os usuários e enviar contas a pagar
     
     res.json({ message: 'Avisos enviados' });
