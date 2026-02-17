@@ -5,11 +5,10 @@ const app = express();
 app.use(express.json());
 
 // ===========================================
-// CONFIGURAÇÕES DO Z-API
+// CONFIGURAÇÕES DA WHAPI CLOUD (SUBSTITUI Z-API)
 // ===========================================
-const ZAPI_INSTANCE_ID = '3EEE292351BD9148D7FF625405C53502';
-const ZAPI_TOKEN = '035FAAEF857C90111DD6D6DA';
-const ZAPI_URL = 'https://api.z-api.io';
+const WHAPI_TOKEN = 'TEtVSimBqAMZAC0gqEtadRKjroevRdkj';
+const WHAPI_URL = 'https://gate.whapi.cloud';
 
 const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
@@ -687,29 +686,49 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// WEBHOOK - RECEBE DO Z-API E ENVIA RESPOSTA
+// WEBHOOK - RECEBE DA WHAPI E ENVIA RESPOSTA (CORRIGIDO)
 // ===========================================
 app.post('/webhook', async (req, res) => {
     try {
-        // O Z-API envia a mensagem no body
-        const { phone, text } = req.body;
-        
+        // Log para debug (opcional, pode remover depois)
+        console.log('Corpo recebido da Whapi:', JSON.stringify(req.body, null, 2));
+
+        // Extrai o número do remetente e o texto da mensagem
+        // Formato esperado: { "messages": [ { "from": "5511999999999", "text": { "body": "mensagem" } } ] }
+        const messages = req.body.messages;
+        if (!messages || messages.length === 0) {
+            return res.status(200).json({ success: true });
+        }
+
+        // Pega a primeira mensagem da lista (a mais recente)
+        const msg = messages[0];
+        const phone = msg.from;
+        const text = msg.text?.body || '';
+
+        if (!phone || !text) {
+            return res.status(200).json({ success: true });
+        }
+
         console.log(`📩 ${phone}: ${text}`);
-        
+
         // Processa a mensagem
         const resposta = await processar(phone, text);
-        
-        // Envia a resposta de volta via Z-API
-        await axios.post(`${ZAPI_URL}/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}/send-text`, {
-            phone: phone,
-            message: resposta
+
+        // Envia a resposta de volta via Whapi Cloud
+        await axios.post(`${WHAPI_URL}/messages/text`, {
+            to: phone,
+            text: resposta
+        }, {
+            headers: {
+                'Authorization': `Bearer ${WHAPI_TOKEN}`
+            }
         });
-        
-        // Responde pro Z-API que recebeu (não é a resposta pro usuário)
+
+        // Responde pra Whapi que recebeu (código 200)
         res.json({ success: true });
-        
+
     } catch (error) {
-        console.error('Erro:', error);
+        console.error('Erro no webhook:', error);
         res.status(500).json({ error: error.message });
     }
 });
