@@ -717,7 +717,7 @@ app.post('/webhook', async (req, res) => {
         // Envia a resposta de volta via Whapi Cloud
         await axios.post(`${WHAPI_URL}/messages/text`, {
             to: phone,
-            text: resposta
+            body: resposta  // MUDOU AQUI: text → body
         }, {
             headers: {
                 'Authorization': `Bearer ${WHAPI_TOKEN}`
