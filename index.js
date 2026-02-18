@@ -1,6 +1,24 @@
 const express = require('express');
 const axios = require('axios');
 const moment = require('moment');
+// ===========================================
+// CONFIGURAÇÕES DO TELEGRAM (NOVO - MANTENDO WHATSAPP)
+// ===========================================
+const TelegramBot = require('node-telegram-bot-api');
+require('dotenv').config();
+
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+if (!TELEGRAM_TOKEN) {
+    console.warn('⚠️ TELEGRAM_TOKEN não configurado - Telegram desabilitado');
+}
+
+let telegramBot = null;
+if (TELEGRAM_TOKEN) {
+    telegramBot = new TelegramBot(TELEGRAM_TOKEN, { 
+        polling: false
+    });
+    console.log('✅ Telegram bot configurado');
+}
 const app = express();
 app.use(express.json());
 
@@ -62,6 +80,21 @@ async function criarTransacao(userId, dados) {
         return res.data;
     } catch {
         return null;
+    }
+}
+
+// ===========================================
+// FUNÇÃO PARA ENVIAR RESPOSTA NO TELEGRAM (NOVO)
+// ===========================================
+async function enviarTelegram(chatId, texto) {
+    if (!telegramBot) return;
+    try {
+        await telegramBot.sendMessage(chatId, texto, {
+            parse_mode: 'HTML'
+        });
+        console.log(`📤 Resposta enviada para Telegram chat ${chatId}`);
+    } catch (error) {
+        console.error('❌ Erro ao enviar para Telegram:', error.message);
     }
 }
 
@@ -685,6 +718,26 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
+// PROCESSAR MENSAGEM DO TELEGRAM (NOVA)
+// ===========================================
+async function processarTelegram(chatId, mensagem) {
+    try {
+        const response = await axios.get(`${API_URL}/telegram-link/${chatId}`);
+        const usuario = response.data;
+        
+        if (!usuario) {
+            return `❌ *Chat não vinculado*\n\nPara usar o Atlas no Telegram, acesse:\nhttps://atlas-database.onrender.com/telegram-vincular?chat_id=${chatId}`;
+        }
+        
+        return await processar(usuario.phone, mensagem);
+        
+    } catch (error) {
+        console.error('Erro ao processar Telegram:', error);
+        return '❌ Erro ao processar mensagem. Tente novamente.';
+    }
+}
+
+// ===========================================
 // WEBHOOK - RECEBE DA WHAPI E ENVIA RESPOSTA (CORRIGIDO)
 // ===========================================
 app.post('/webhook', async (req, res) => {
@@ -733,6 +786,38 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
+// WEBHOOK DO TELEGRAM (NOVO)
+// ===========================================
+app.post('/telegram-webhook', async (req, res) => {
+    try {
+        if (!telegramBot) {
+            return res.status(503).json({ error: 'Telegram não configurado' });
+        }
+
+        const { message } = req.body;
+        if (!message || !message.text) {
+            return res.sendStatus(200);
+        }
+
+        const chatId = message.chat.id;
+        const texto = message.text;
+        const nome = message.from.first_name || 'Usuário';
+        
+        console.log(`📩 Telegram [${nome}]: ${texto}`);
+
+        const resposta = await processarTelegram(chatId, texto);
+        await enviarTelegram(chatId, resposta);
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Erro no webhook do Telegram:', error);
+        res.sendStatus(500);
+    }
+});
+
+
+
+// ===========================================
 // ROTA DE TESTE (opcional - pode manter)
 // ===========================================
 app.get('/teste/:numero/:msg', async (req, res) => {
@@ -767,10 +852,27 @@ app.get('/cron/avisos', async (req, res) => {
 });
 
 // ===========================================
+// REGISTRAR WEBHOOK DO TELEGRAM
+// ===========================================
+async function registrarTelegramWebhook() {
+    if (!telegramBot) return;
+    
+    try {
+        const webhookUrl = `https://atlas-whatsapp-bot.onrender.com/telegram-webhook`;
+        await telegramBot.setWebHook(webhookUrl);
+        console.log(`✅ Webhook do Telegram registrado: ${webhookUrl}`);
+    } catch (error) {
+        console.error('❌ Erro ao registrar webhook do Telegram:', error);
+    }
+}
+
+// ===========================================
 // INICIAR
 // ===========================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🤖 BOT ATLAS RODANDO NA PORTA ${PORT}`);
-    console.log(`✅ 22 FUNCIONALIDADES CARREGADAS`);
+    console.log(`✅ WhatsApp ativo (webhook: /webhook)`);
+    await registrarTelegramWebhook();
+    console.log(`✅ Telegram ativo (webhook: /telegram-webhook)`);
 });
