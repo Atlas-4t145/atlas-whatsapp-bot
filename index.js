@@ -32,6 +32,16 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
+// CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM
+// ===========================================
+const userPhoneCache = new Map();
+
+// ===========================================
+// CACHE PARA LOGINS DO TELEGRAM
+// ===========================================
+const userLoginCache = new Map();
+
+// ===========================================
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
