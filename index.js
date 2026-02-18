@@ -37,38 +37,41 @@ const userCache = new Map();
 const userPhoneCache = new Map();
 
 // ===========================================
-// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
+// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (COM LOGS)
 // ===========================================
 async function buscarUsuario(numero) {
+    console.log(`🔍 buscarUsuario() recebeu: ${numero}`);
     const num = numero.replace(/\D/g, '');
-    if (userCache.has(num)) return userCache.get(num);
+    console.log(`🔍 buscarUsuario() limpo: ${num}`);
+    
+    if (userCache.has(num)) {
+        console.log(`🔍 buscarUsuario() cache HIT: ${num}`);
+        return userCache.get(num);
+    }
     
     try {
+        console.log(`🔍 buscarUsuario() chamando API: ${API_URL}/usuario-por-telefone/${num}`);
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
+        console.log(`🔍 buscarUsuario() API retornou:`, res.data);
         userCache.set(num, res.data);
         return res.data;
-    } catch {
+    } catch (error) {
+        console.error(`🔍 buscarUsuario() ERRO:`, error.message);
         return null;
     }
 }
 
 // ===========================================
-// BUSCAR TRANSAÇÕES DO USUÁRIO (VIA ROTA PÚBLICA)
+// BUSCAR TRANSAÇÕES DO USUÁRIO (COM LOGS)
 // ===========================================
 async function buscarTransacoes(userId, mes, ano) {
+    console.log(`📊 buscarTransacoes() userId: ${userId}, mês: ${mes}, ano: ${ano}`);
     try {
         const res = await axios.get(`${API_URL}/transactions/${ano}/${mes}?user_id=${userId}`);
+        console.log(`📊 buscarTransacoes() encontrou ${res.data.length} transações`);
         return res.data;
-    } catch {
-        return [];
-    }
-}
-
-async function buscarTodasTransacoes(userId) {
-    try {
-        const res = await axios.get(`${API_URL}/transactions?user_id=${userId}`);
-        return res.data;
-    } catch {
+    } catch (error) {
+        console.error(`📊 buscarTransacoes() ERRO:`, error.message);
         return [];
     }
 }
@@ -123,6 +126,13 @@ async function processar(numero, mensagem) {
     if (!usuario) {
         return "❌ Número não autorizado. Acesse o portal Atlas para vincular seu WhatsApp.";
     }
+
+    console.log(`🚀 processar() iniciado com número: ${numero}, mensagem: ${mensagem}`);
+    
+    const usuario = await buscarUsuario(numero);
+    console.log(`👤 Usuário encontrado?`, usuario ? `Sim: ${usuario.name} (ID: ${usuario.id})` : 'Não');
+
+    
     
     const texto = mensagem.toLowerCase().trim();
     const hoje = moment();
