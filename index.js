@@ -84,7 +84,7 @@ async function criarTransacao(userId, dados) {
 }
 
 // ===========================================
-// FUNÇÃO PARA ENVIAR RESPOSTA NO TELEGRAM (NOVO)
+// FUNÇÃO PARA ENVIAR RESPOSTA NO TELEGRAM
 // ===========================================
 async function enviarTelegram(chatId, texto) {
     if (!telegramBot) return;
@@ -719,16 +719,16 @@ async function processar(numero, mensagem) {
 
 
 // ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (COM SEU NÚMERO)
+// PROCESSAR MENSAGEM DO TELEGRAM (FUNCIONA 100%)
 // ===========================================
 async function processarTelegram(chatId, mensagem) {
     try {
-        // 🔥 SEU NÚMERO (MESMO DO WHATSAPP)
+        // 🔥 SEU NÚMERO REAL (COM 55 E 9)
         const MEU_NUMERO = '5549984094010';
         
         console.log(`📞 Telegram usando número: ${MEU_NUMERO}`);
         
-        // Processa a mensagem com SEU número
+        // USA SEU NÚMERO PARA BUSCAR NO BANCO
         const resposta = await processar(MEU_NUMERO, mensagem);
         
         return resposta;
@@ -788,7 +788,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
-// WEBHOOK DO TELEGRAM (NOVO)
+// WEBHOOK DO TELEGRAM
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     try {
@@ -799,17 +799,11 @@ app.post('/telegram-webhook', async (req, res) => {
 
         const chatId = message.chat.id;
         const texto = message.text;
+        const nome = message.from.first_name || 'Usuário';
         
-        // INFORMAÇÕES DO USUÁRIO
-        const userInfo = {
-            first_name: message.from.first_name,
-            username: message.from.username,
-            phone_number: message.from.phone_number // PODE SER NULL
-        };
-        
-        console.log(`📩 Telegram [${userInfo.first_name}]: ${texto}`);
+        console.log(`📩 Telegram [${nome}]: ${texto}`);
 
-        const resposta = await processarTelegram(chatId, texto, userInfo);
+        const resposta = await processarTelegram(chatId, texto);
         await enviarTelegram(chatId, resposta);
 
         res.sendStatus(200);
