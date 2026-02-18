@@ -14,17 +14,32 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
-// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
+// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (COM CORREÇÃO DO 9)
 // ===========================================
 async function buscarUsuario(numero) {
-    const num = numero.replace(/\D/g, '');
+    let num = numero.replace(/\D/g, '');
+
+    // --- CORREÇÃO DO 9 PARA WHATSAPP ---
+    // Se o número tiver 12 dígitos e começar com 55 + DDD de 2 dígitos, provavelmente falta o 9.
+    // Exemplo: 554998409401 (12 dígitos) -> Deveria ser 5549984094010 (13 dígitos)
+    if (num.length === 12 && num.startsWith('55')) {
+        // Pega os primeiros 4 dígitos (55 + DDD)
+        const prefixo = num.substring(0, 4); // "5549"
+        // Pega o restante do número (os últimos 8 dígitos)
+        const restante = num.substring(4);   // "98409401"
+        // Insere o 9 entre o prefixo e o restante
+        num = prefixo + '9' + restante;      // "5549" + "9" + "98409401" = "554998409401"
+        console.log(`🔧 Número corrigido com 9: ${num}`);
+    }
+
     if (userCache.has(num)) return userCache.get(num);
-    
+
     try {
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
         userCache.set(num, res.data);
         return res.data;
-    } catch {
+    } catch (error) {
+        console.error(`❌ Erro ao buscar usuário ${num}:`, error.message);
         return null;
     }
 }
