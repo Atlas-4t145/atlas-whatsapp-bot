@@ -732,28 +732,6 @@ async function processar(numero, mensagem) {
     return "❓ *Não entendi*\n\nDigite *ajuda* para ver os comandos disponíveis.";
 }
 
-
-// ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (FUNCIONA 100%)
-// ===========================================
-async function processarTelegram(chatId, mensagem) {
-    try {
-        // 🔥 SEU NÚMERO REAL (COM 55 E 9)
-        const MEU_NUMERO = '5549984094010';
-        
-        console.log(`📞 Telegram usando número: ${MEU_NUMERO}`);
-        
-        // USA SEU NÚMERO PARA BUSCAR NO BANCO
-        const resposta = await processar(MEU_NUMERO, mensagem);
-        
-        return resposta;
-        
-    } catch (error) {
-        console.error('❌ Erro no Telegram:', error);
-        return '❌ Erro ao processar mensagem.';
-    }
-}
-
 // ===========================================
 // WEBHOOK - RECEBE DA WHAPI E ENVIA RESPOSTA (CORRIGIDO)
 // ===========================================
