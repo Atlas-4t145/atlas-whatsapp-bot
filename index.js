@@ -5,7 +5,9 @@ const moment = require('moment');
 // CONFIGURAÇÕES DO TELEGRAM (NOVO - MANTENDO WHATSAPP)
 // ===========================================
 const TelegramBot = require('node-telegram-bot-api');
+const puppeteer = require('puppeteer');
 require('dotenv').config();
+
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 if (!TELEGRAM_TOKEN) {
@@ -35,6 +37,11 @@ const userCache = new Map();
 // CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM
 // ===========================================
 const userPhoneCache = new Map();
+
+// ===========================================
+// CACHE PARA LOGINS DO TELEGRAM
+// ===========================================
+const userLoginCache = new Map();  // chatId → { telefone, senha }
 
 // ===========================================
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
@@ -803,7 +810,63 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
-// WEBHOOK DO TELEGRAM – USANDO ROTA DO CHAT WEB
+// FUNÇÃO PARA USAR O CHAT WEB DE VERDADE
+// ===========================================
+async function usarChatWeb(telefone, senha, mensagem) {
+    console.log(`🌐 Abrindo Chat Web para ${telefone}...`);
+    
+    const browser = await puppeteer.launch({ 
+        headless: true,
+        args: ['--no-sandbox'] // Necessário no Render
+    });
+    
+    try {
+        const page = await browser.newPage();
+        
+        // 1. Abrir Chat Web
+        await page.goto('https://atlas-4t145.github.io/portal-atlas/chat.html', {
+            waitUntil: 'networkidle2'
+        });
+        
+        // 2. Fazer login
+        console.log('🔑 Fazendo login...');
+        await page.type('#telefone', telefone);
+        await page.type('#senha', senha);
+        await page.click('#btnLogin');
+        
+        // 3. Aguardar chat carregar
+        await page.waitForSelector('#inputMensagem', { timeout: 10000 });
+        
+        // 4. Digitar mensagem
+        console.log(`📤 Enviando mensagem: ${mensagem}`);
+        await page.type('#inputMensagem', mensagem);
+        await page.click('#btnEnviar');
+        
+        // 5. Aguardar resposta do bot
+        await page.waitForSelector('.message.bot:last-child .message-content', { 
+            timeout: 15000 
+        });
+        
+        // 6. Capturar resposta
+        const resposta = await page.$eval('.message.bot:last-child .message-content', 
+            el => el.textContent
+        );
+        
+        console.log(`📥 Resposta recebida: ${resposta.substring(0, 50)}...`);
+        
+        return resposta;
+        
+    } catch (error) {
+        console.error('❌ Erro no Chat Web:', error);
+        return '❌ Erro ao processar no Chat Web.';
+    } finally {
+        await browser.close();
+        console.log('🔒 Navegador fechado');
+    }
+}
+
+// ===========================================
+// WEBHOOK DO TELEGRAM – USANDO CHAT WEB REAL
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     try {
@@ -821,12 +884,12 @@ app.post('/telegram-webhook', async (req, res) => {
             let telefone = message.contact.phone_number.replace(/\D/g, '');
             if (!telefone.startsWith('55')) telefone = '55' + telefone;
 
-            userPhoneCache.set(chatId, telefone);
-            console.log(`✅ Telegram: Chat ${chatId} vinculado ao número ${telefone}`);
+            // Salva telefone e marca que precisa de senha
+            userPhoneCache.set(chatId, { telefone, aguardandoSenha: true });
 
             await telegramBot.sendMessage(
                 chatId,
-                `✅ *Número vinculado!*\n\nAgora você pode usar o Atlas.\nDigite *ajuda*.`,
+                `📱 *Número recebido:* ${telefone}\n\nAgora digite sua *senha* do Atlas:`,
                 { parse_mode: 'Markdown' }
             );
             return res.sendStatus(200);
@@ -835,21 +898,41 @@ app.post('/telegram-webhook', async (req, res) => {
         // CASO 2: MENSAGEM DE TEXTO
         if (message.text) {
             const texto = message.text;
-            const telefone = userPhoneCache.get(chatId);
+            
+            // Verifica se está aguardando senha
+            const pendingData = userPhoneCache.get(chatId);
+            if (pendingData?.aguardandoSenha) {
+                // Salva a senha e remove flag
+                userLoginCache.set(chatId, {
+                    telefone: pendingData.telefone,
+                    senha: texto
+                });
+                userPhoneCache.delete(chatId);
 
-            if (!telefone) {
-                console.log(`📩 Telegram [${message.from.first_name}]: ${texto} (sem número)`);
+                await telegramBot.sendMessage(
+                    chatId,
+                    `✅ *Login salvo!*\n\nAgora você pode usar o Atlas.\nDigite *ajuda* para começar.`,
+                    { parse_mode: 'Markdown' }
+                );
+                return res.sendStatus(200);
+            }
+
+            // Verifica se já tem login salvo
+            const userData = userLoginCache.get(chatId);
+            if (!userData) {
                 await pedirCompartilharNumero(chatId);
                 return res.sendStatus(200);
             }
 
-            console.log(`📩 Telegram [${telefone}]: ${texto}`);
+            console.log(`📩 Telegram [${userData.telefone}]: ${texto}`);
 
-            // 🔥 CHAMA A ROTA DO CHAT WEB
-            const response = await axios.get(`https://atlas-whatsapp-bot.onrender.com/teste/${telefone}/${encodeURIComponent(texto)}`);
-            
-            const resposta = response.data.resposta;
-            
+            // 🔥 USA O CHAT WEB DE VERDADE
+            const resposta = await usarChatWeb(
+                userData.telefone,
+                userData.senha,
+                texto
+            );
+
             await telegramBot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
             return res.sendStatus(200);
         }
