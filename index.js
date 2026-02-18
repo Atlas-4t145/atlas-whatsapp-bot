@@ -40,14 +40,23 @@ const userPhoneCache = new Map();
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
+    console.log(`🔍 buscarUsuario() recebeu: ${numero}`);
     const num = numero.replace(/\D/g, '');
-    if (userCache.has(num)) return userCache.get(num);
+    console.log(`🔍 buscarUsuario() limpo: ${num}`);
+    
+    if (userCache.has(num)) {
+        console.log(`🔍 buscarUsuario() cache HIT`);
+        return userCache.get(num);
+    }
     
     try {
+        console.log(`🔍 buscarUsuario() chamando: ${API_URL}/usuario-por-telefone/${num}`);
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
+        console.log(`🔍 buscarUsuario() retornou:`, res.data);
         userCache.set(num, res.data);
         return res.data;
-    } catch {
+    } catch (error) {
+        console.error(`🔍 buscarUsuario() ERRO:`, error.message);
         return null;
     }
 }
