@@ -717,73 +717,25 @@ async function processar(numero, mensagem) {
     return "❓ *Não entendi*\n\nDigite *ajuda* para ver os comandos disponíveis.";
 }
 
-// ===========================================
-// ARMAZENAMENTO TEMPORÁRIO DE LOGINS (CHATID → TELEFONE)
-// ===========================================
-const userLoginCache = new Map();
 
 // ===========================================
-// PROCESSAR COMANDOS DO TELEGRAM
-// ===========================================
-async function processarComandoTelegram(chatId, texto) {
-    const partes = texto.split(' ');
-    const comando = partes[0].toLowerCase();
-    
-    // Comando /login 5549984094010 admin123
-    if (comando === '/login' && partes.length === 3) {
-        const telefone = partes[1].replace(/\D/g, '');
-        const senha = partes[2];
-        
-        try {
-            // Tenta fazer login na API do Atlas
-            const response = await axios.post(`${API_URL}/login`, {
-                phone: telefone,
-                password: senha
-            });
-            
-            if (response.data.token) {
-                // Salva o telefone no cache
-                userLoginCache.set(chatId, telefone);
-                return `✅ Login realizado com sucesso, ${response.data.user.name}! Agora você pode usar o bot normalmente.`;
-            }
-        } catch (error) {
-            return '❌ Telefone ou senha inválidos. Tente /login TELEFONE SENHA';
-        }
-    }
-    
-    // Comando /logout
-    if (comando === '/logout') {
-        if (userLoginCache.delete(chatId)) {
-            return '✅ Logout realizado com sucesso.';
-        }
-        return '❌ Você não estava logado.';
-    }
-    
-    // Se não for comando de login, processa normalmente (se estiver logado)
-    const telefone = userLoginCache.get(chatId);
-    if (!telefone) {
-        return '🔐 Faça login primeiro:\n/login 5549984094010 admin123';
-    }
-    
-    // Processa a mensagem com o telefone logado
-    return await processar(telefone, texto);
-}
-
-// ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (COM LOGIN)
+// PROCESSAR MENSAGEM DO TELEGRAM (COM SEU NÚMERO)
 // ===========================================
 async function processarTelegram(chatId, mensagem) {
     try {
-        console.log(`📨 Telegram ${chatId}: ${mensagem}`);
+        // 🔥 SEU NÚMERO (MESMO DO WHATSAPP)
+        const MEU_NUMERO = '5549984094010';
         
-        // Processa comandos e mensagens
-        const resposta = await processarComandoTelegram(chatId, mensagem);
+        console.log(`📞 Telegram usando número: ${MEU_NUMERO}`);
+        
+        // Processa a mensagem com SEU número
+        const resposta = await processar(MEU_NUMERO, mensagem);
         
         return resposta;
         
     } catch (error) {
         console.error('❌ Erro no Telegram:', error);
-        return '❌ Erro interno. Tente novamente.';
+        return '❌ Erro ao processar mensagem.';
     }
 }
 
