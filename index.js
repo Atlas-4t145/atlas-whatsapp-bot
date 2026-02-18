@@ -718,21 +718,26 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (NOVA)
+// PROCESSAR MENSAGEM DO TELEGRAM (SEM DEPENDER DO SERVER)
 // ===========================================
 async function processarTelegram(chatId, mensagem) {
     try {
-        const response = await axios.get(`${API_URL}/telegram-link/${chatId}`);
-        const usuario = response.data;
+        // 🔥 USA UM USUÁRIO FIXO (VOCÊ)
+        const usuario = {
+            id: 1,
+            phone: '5549984094010',
+            name: 'João Victor'
+        };
         
-        if (!usuario) {
-            return `❌ *Chat não vinculado*\n\nPara usar o Atlas no Telegram, acesse:\nhttps://atlas-database.onrender.com/telegram-vincular?chat_id=${chatId}`;
-        }
+        console.log(`✅ Usuário fixo: ${usuario.name} (${usuario.phone})`);
         
-        return await processar(usuario.phone, mensagem);
+        // Processa a mensagem com o telefone fixo
+        const resposta = await processar(usuario.phone, mensagem);
+        
+        return resposta;
         
     } catch (error) {
-        console.error('Erro ao processar Telegram:', error);
+        console.error('❌ Erro no Telegram:', error.message);
         return '❌ Erro ao processar mensagem. Tente novamente.';
     }
 }
