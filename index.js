@@ -32,46 +32,38 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
-// CACHE PARA NÚMEROS DE TELEFONE DO TELEGRAM
-// ===========================================
-const userPhoneCache = new Map();
-
-// ===========================================
-// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (COM LOGS)
+// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
-    console.log(`🔍 buscarUsuario() recebeu: ${numero}`);
     const num = numero.replace(/\D/g, '');
-    console.log(`🔍 buscarUsuario() limpo: ${num}`);
-    
-    if (userCache.has(num)) {
-        console.log(`🔍 buscarUsuario() cache HIT: ${num}`);
-        return userCache.get(num);
-    }
+    if (userCache.has(num)) return userCache.get(num);
     
     try {
-        console.log(`🔍 buscarUsuario() chamando API: ${API_URL}/usuario-por-telefone/${num}`);
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
-        console.log(`🔍 buscarUsuario() API retornou:`, res.data);
         userCache.set(num, res.data);
         return res.data;
-    } catch (error) {
-        console.error(`🔍 buscarUsuario() ERRO:`, error.message);
+    } catch {
         return null;
     }
 }
 
 // ===========================================
-// BUSCAR TRANSAÇÕES DO USUÁRIO (COM LOGS)
+// BUSCAR TRANSAÇÕES DO USUÁRIO (VIA ROTA PÚBLICA)
 // ===========================================
 async function buscarTransacoes(userId, mes, ano) {
-    console.log(`📊 buscarTransacoes() userId: ${userId}, mês: ${mes}, ano: ${ano}`);
     try {
         const res = await axios.get(`${API_URL}/transactions/${ano}/${mes}?user_id=${userId}`);
-        console.log(`📊 buscarTransacoes() encontrou ${res.data.length} transações`);
         return res.data;
-    } catch (error) {
-        console.error(`📊 buscarTransacoes() ERRO:`, error.message);
+    } catch {
+        return [];
+    }
+}
+
+async function buscarTodasTransacoes(userId) {
+    try {
+        const res = await axios.get(`${API_URL}/transactions?user_id=${userId}`);
+        return res.data;
+    } catch {
         return [];
     }
 }
@@ -92,7 +84,7 @@ async function criarTransacao(userId, dados) {
 }
 
 // ===========================================
-// FUNÇÃO PARA ENVIAR RESPOSTA NO TELEGRAM
+// FUNÇÃO PARA ENVIAR RESPOSTA NO TELEGRAM (NOVO)
 // ===========================================
 async function enviarTelegram(chatId, texto) {
     if (!telegramBot) return;
@@ -126,13 +118,6 @@ async function processar(numero, mensagem) {
     if (!usuario) {
         return "❌ Número não autorizado. Acesse o portal Atlas para vincular seu WhatsApp.";
     }
-
-    console.log(`🚀 processar() iniciado com número: ${numero}, mensagem: ${mensagem}`);
-    
-    const usuario = await buscarUsuario(numero);
-    console.log(`👤 Usuário encontrado?`, usuario ? `Sim: ${usuario.name} (ID: ${usuario.id})` : 'Não');
-
-    
     
     const texto = mensagem.toLowerCase().trim();
     const hoje = moment();
@@ -733,6 +718,31 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
+// PROCESSAR MENSAGEM DO TELEGRAM (SEM DEPENDER DO SERVER)
+// ===========================================
+async function processarTelegram(chatId, mensagem) {
+    try {
+        // 🔥 USA UM USUÁRIO FIXO (VOCÊ)
+        const usuario = {
+            id: 1,
+            phone: '5549984094010',
+            name: 'João Victor'
+        };
+        
+        console.log(`✅ Usuário fixo: ${usuario.name} (${usuario.phone})`);
+        
+        // Processa a mensagem com o telefone fixo
+        const resposta = await processar(usuario.phone, mensagem);
+        
+        return resposta;
+        
+    } catch (error) {
+        console.error('❌ Erro no Telegram:', error.message);
+        return '❌ Erro ao processar mensagem. Tente novamente.';
+    }
+}
+
+// ===========================================
 // WEBHOOK - RECEBE DA WHAPI E ENVIA RESPOSTA (CORRIGIDO)
 // ===========================================
 app.post('/webhook', async (req, res) => {
@@ -781,32 +791,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
-// FUNÇÃO PARA PEDIR COMPARTILHAMENTO DE NÚMERO
-// ===========================================
-async function pedirCompartilharNumero(chatId) {
-    const teclado = {
-        reply_markup: {
-            keyboard: [[{
-                text: "📱 Compartilhar Número",
-                request_contact: true
-            }]],
-            resize_keyboard: true,
-            one_time_keyboard: true
-        }
-    };
-    
-    await telegramBot.sendMessage(
-        chatId,
-        "🔐 *Para usar o Atlas, preciso do seu número de telefone.*\n\nClique no botão abaixo para compartilhar:",
-        { 
-            parse_mode: 'Markdown',
-            ...teclado 
-        }
-    );
-}
-
-// ===========================================
-// WEBHOOK DO TELEGRAM (VERSÃO FINAL)
+// WEBHOOK DO TELEGRAM (NOVO)
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     try {
@@ -815,57 +800,22 @@ app.post('/telegram-webhook', async (req, res) => {
         }
 
         const { message } = req.body;
-        if (!message) {
+        if (!message || !message.text) {
             return res.sendStatus(200);
         }
 
         const chatId = message.chat.id;
+        const texto = message.text;
+        const nome = message.from.first_name || 'Usuário';
+        
+        console.log(`📩 Telegram [${nome}]: ${texto}`);
 
-        // CASO 1: USUÁRIO COMPARTILHOU O NÚMERO
-        if (message.contact) {
-            const telefone = message.contact.phone_number.replace(/\D/g, '');
-            
-            userPhoneCache.set(chatId, telefone);
-            
-            console.log(`✅ Telegram: Chat ${chatId} vinculado ao número ${telefone}`);
-            
-            await telegramBot.sendMessage(
-                chatId,
-                `✅ *Número vinculado!*\n\nAgora você pode usar o Atlas.\n\nDigite *ajuda* para ver os comandos.`,
-                { parse_mode: 'Markdown' }
-            );
-            
-            return res.sendStatus(200);
-        }
-
-        // CASO 2: MENSAGEM DE TEXTO
-        if (message.text) {
-            const texto = message.text;
-            const telefone = userPhoneCache.get(chatId);
-            
-            // Se não tiver número, pede para compartilhar
-            if (!telefone) {
-                console.log(`📩 Telegram [${message.from.first_name}]: ${texto} (sem número)`);
-                await pedirCompartilharNumero(chatId);
-                return res.sendStatus(200);
-            }
-            
-            // Se tiver número, processa
-            console.log(`📩 Telegram [${telefone}]: ${texto}`);
-            
-            const resposta = await processar(telefone, texto);
-            
-            await telegramBot.sendMessage(chatId, resposta, {
-                parse_mode: 'HTML'
-            });
-            
-            return res.sendStatus(200);
-        }
+        const resposta = await processarTelegram(chatId, texto);
+        await enviarTelegram(chatId, resposta);
 
         res.sendStatus(200);
-        
     } catch (error) {
-        console.error('❌ Erro no webhook do Telegram:', error);
+        console.error('Erro no webhook do Telegram:', error);
         res.sendStatus(500);
     }
 });
