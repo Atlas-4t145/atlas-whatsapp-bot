@@ -14,22 +14,20 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
-// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (COM CORREÇÃO DO 9)
+// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (CORREÇÃO DO 9)
 // ===========================================
 async function buscarUsuario(numero) {
     let num = numero.replace(/\D/g, '');
 
-    // --- CORREÇÃO DO 9 PARA WHATSAPP ---
-    // Se o número tiver 12 dígitos e começar com 55 + DDD de 2 dígitos, provavelmente falta o 9.
-    // Exemplo: 554998409401 (12 dígitos) -> Deveria ser 5549984094010 (13 dígitos)
+    // --- CORREÇÃO: se tiver 12 dígitos e começar com 55, insere o 9 como quinto dígito ---
     if (num.length === 12 && num.startsWith('55')) {
-        // Pega os primeiros 4 dígitos (55 + DDD)
-        const prefixo = num.substring(0, 4); // "5549"
-        // Pega o restante do número (os últimos 8 dígitos)
-        const restante = num.substring(4);   // "98409401"
-        // Insere o 9 entre o prefixo e o restante
-        num = prefixo + '9' + restante;      // "5549" + "9" + "98409401" = "554998409401"
-        console.log(`🔧 Número corrigido com 9: ${num}`);
+        const ddi = num.substring(0, 2);     // "55"
+        const ddd = num.substring(2, 4);     // "49"
+        const restante = num.substring(4);    // "84094010"
+
+        num = ddi + ddd + '9' + restante;    // "55" + "49" + "9" + "84094010" = "5549984094010"
+
+        console.log(`📱 Número corrigido (com 9): ${num}`);
     }
 
     if (userCache.has(num)) return userCache.get(num);
@@ -43,7 +41,6 @@ async function buscarUsuario(numero) {
         return null;
     }
 }
-
 // ===========================================
 // BUSCAR TRANSAÇÕES DO USUÁRIO (VIA ROTA PÚBLICA)
 // ===========================================
