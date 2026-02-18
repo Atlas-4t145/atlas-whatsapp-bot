@@ -14,33 +14,21 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
-// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (CORREÇÃO DO 9)
+// BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
 // ===========================================
 async function buscarUsuario(numero) {
-    let num = numero.replace(/\D/g, '');
-
-    // --- CORREÇÃO: se tiver 12 dígitos e começar com 55, insere o 9 como quinto dígito ---
-    if (num.length === 12 && num.startsWith('55')) {
-        const ddi = num.substring(0, 2);     // "55"
-        const ddd = num.substring(2, 4);     // "49"
-        const restante = num.substring(4);    // "84094010"
-
-        num = ddi + ddd + '9' + restante;    // "55" + "49" + "9" + "84094010" = "5549984094010"
-
-        console.log(`📱 Número corrigido (com 9): ${num}`);
-    }
-
+    const num = numero.replace(/\D/g, '');
     if (userCache.has(num)) return userCache.get(num);
-
+    
     try {
         const res = await axios.get(`${API_URL}/usuario-por-telefone/${num}`);
         userCache.set(num, res.data);
         return res.data;
-    } catch (error) {
-        console.error(`❌ Erro ao buscar usuário ${num}:`, error.message);
+    } catch {
         return null;
     }
 }
+
 // ===========================================
 // BUSCAR TRANSAÇÕES DO USUÁRIO (VIA ROTA PÚBLICA)
 // ===========================================
