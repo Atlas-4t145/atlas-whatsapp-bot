@@ -718,27 +718,23 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (SEM DEPENDER DO SERVER)
+// PROCESSAR MENSAGEM DO TELEGRAM (VERSÃO CORRETA)
 // ===========================================
 async function processarTelegram(chatId, mensagem) {
     try {
-        // 🔥 USA UM USUÁRIO FIXO (VOCÊ)
-        const usuario = {
-            id: 1,
-            phone: '5549984094010',
-            name: 'João Victor'
-        };
+        // 🔥 USA O NÚMERO QUE VOCÊ USA NO WHATSAPP
+        const numeroWhatsApp = '5549984094010';
         
-        console.log(`✅ Usuário fixo: ${usuario.name} (${usuario.phone})`);
+        console.log(`📞 Usando número: ${numeroWhatsApp}`);
         
-        // Processa a mensagem com o telefone fixo
-        const resposta = await processar(usuario.phone, mensagem);
+        // Processa a mensagem com o número do WhatsApp
+        const resposta = await processar(numeroWhatsApp, mensagem);
         
         return resposta;
         
     } catch (error) {
-        console.error('❌ Erro no Telegram:', error.message);
-        return '❌ Erro ao processar mensagem. Tente novamente.';
+        console.error('❌ Erro no Telegram:', error);
+        return '❌ Erro ao processar mensagem.';
     }
 }
 
