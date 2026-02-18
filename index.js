@@ -718,18 +718,17 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (COM NÚMERO DO TELEGRAM)
+// PROCESSAR MENSAGEM DO TELEGRAM (COM NÚMERO FIXO)
 // ===========================================
-async function processarTelegram(chatId, mensagem, userInfo) {
+async function processarTelegram(chatId, mensagem) {
     try {
-        // PEGA O NÚMERO DE TELEFONE DO USUÁRIO DO TELEGRAM
-        // OBS: O TELEGRAM SÓ FORNECE NÚMERO SE O USUÁRIO COMPARTILHOU
-        const telefone = userInfo.phone_number || '5549984094010'; // FALLBACK
+        // 🔥 SEU NÚMERO DO WHATSAPP (COM 55 E 9)
+        const MEU_NUMERO = '5549984094010';
         
-        console.log(`📞 Telegram - telefone: ${telefone}`);
+        console.log(`📞 Telegram usando número: ${MEU_NUMERO}`);
         
-        // USA O NÚMERO DO TELEGRAM (IGUAL AO WHATSAPP)
-        const resposta = await processar(telefone, mensagem);
+        // Processa a mensagem com SEU número
+        const resposta = await processar(MEU_NUMERO, mensagem);
         
         return resposta;
         
