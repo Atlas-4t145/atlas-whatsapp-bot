@@ -803,7 +803,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
-// WEBHOOK DO TELEGRAM – USANDO ROTA DE TESTE (IGUAL AO CHAT WEB)
+// WEBHOOK DO TELEGRAM – USANDO A ROTA DO CHAT WEB
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     try {
@@ -845,7 +845,7 @@ app.post('/telegram-webhook', async (req, res) => {
 
             console.log(`📩 Telegram [${telefone}]: ${texto}`);
 
-            // 🔥 CHAMA A MESMA ROTA DE TESTE DO CHAT WEB
+            // 🔥 CHAMA A MESMA ROTA QUE O CHAT WEB USA
             const response = await axios.get(`https://atlas-whatsapp-bot.onrender.com/teste/${telefone}/${encodeURIComponent(texto)}`);
             
             const resposta = response.data.resposta;
@@ -860,7 +860,6 @@ app.post('/telegram-webhook', async (req, res) => {
         res.sendStatus(500);
     }
 });
-
 
 // ===========================================
 // ROTA DE TESTE (opcional - pode manter)
