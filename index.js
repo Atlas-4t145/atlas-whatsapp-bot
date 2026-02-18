@@ -83,6 +83,7 @@ async function criarTransacao(userId, dados) {
     }
 }
 
+
 // ===========================================
 // FUNÇÃO PARA ENVIAR RESPOSTA NO TELEGRAM (NOVO)
 // ===========================================
@@ -95,6 +96,57 @@ async function enviarTelegram(chatId, texto) {
         console.log(`📤 Resposta enviada para Telegram chat ${chatId}`);
     } catch (error) {
         console.error('❌ Erro ao enviar para Telegram:', error.message);
+    }
+}
+
+// ===========================================
+// FUNÇÃO PARA USAR O CHAT WEB DE VERDADE
+// ===========================================
+async function usarChatWeb(telefone, senha, mensagem) {
+    console.log(`🌐 Abrindo Chat Web para ${telefone}...`);
+    
+    const browser = await puppeteer.launch({ 
+        headless: true,
+        args: ['--no-sandbox']
+    });
+    
+    try {
+        const page = await browser.newPage();
+        
+        // Abrir Chat Web
+        await page.goto('https://atlas-4t145.github.io/portal-atlas/chat.html', {
+            waitUntil: 'networkidle2'
+        });
+        
+        // Fazer login
+        await page.type('#telefone', telefone);
+        await page.type('#senha', senha);
+        await page.click('#btnLogin');
+        
+        // Aguardar chat carregar
+        await page.waitForSelector('#inputMensagem', { timeout: 10000 });
+        
+        // Digitar mensagem
+        await page.type('#inputMensagem', mensagem);
+        await page.click('#btnEnviar');
+        
+        // Aguardar resposta
+        await page.waitForSelector('.message.bot:last-child .message-content', { 
+            timeout: 15000 
+        });
+        
+        // Capturar resposta
+        const resposta = await page.$eval('.message.bot:last-child .message-content', 
+            el => el.textContent
+        );
+        
+        return resposta;
+        
+    } catch (error) {
+        console.error('❌ Erro no Chat Web:', error);
+        return '❌ Erro ao processar no Chat Web.';
+    } finally {
+        await browser.close();
     }
 }
 
@@ -718,28 +770,25 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (SEM DEPENDER DO SERVER)
+// FUNÇÃO PARA PEDIR COMPARTILHAMENTO DE NÚMERO
 // ===========================================
-async function processarTelegram(chatId, mensagem) {
-    try {
-        // 🔥 USA UM USUÁRIO FIXO (VOCÊ)
-        const usuario = {
-            id: 1,
-            phone: '5549984094010',
-            name: 'João Victor'
-        };
-        
-        console.log(`✅ Usuário fixo: ${usuario.name} (${usuario.phone})`);
-        
-        // Processa a mensagem com o telefone fixo
-        const resposta = await processar(usuario.phone, mensagem);
-        
-        return resposta;
-        
-    } catch (error) {
-        console.error('❌ Erro no Telegram:', error.message);
-        return '❌ Erro ao processar mensagem. Tente novamente.';
-    }
+async function pedirCompartilharNumero(chatId) {
+    const teclado = {
+        reply_markup: {
+            keyboard: [[{
+                text: "📱 Compartilhar Número",
+                request_contact: true
+            }]],
+            resize_keyboard: true,
+            one_time_keyboard: true
+        }
+    };
+    
+    await telegramBot.sendMessage(
+        chatId,
+        "🔐 *Para usar o Atlas, preciso do seu número de telefone.*\n\nClique no botão abaixo:",
+        { parse_mode: 'Markdown', ...teclado }
+    );
 }
 
 // ===========================================
@@ -791,7 +840,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ===========================================
-// WEBHOOK DO TELEGRAM (NOVO)
+// WEBHOOK DO TELEGRAM – USANDO CHAT WEB COMO MOTOR
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     try {
@@ -800,22 +849,71 @@ app.post('/telegram-webhook', async (req, res) => {
         }
 
         const { message } = req.body;
-        if (!message || !message.text) {
+        if (!message) return res.sendStatus(200);
+
+        const chatId = message.chat.id;
+
+        // CASO 1: USUÁRIO COMPARTILHOU O NÚMERO
+        if (message.contact) {
+            let telefone = message.contact.phone_number.replace(/\D/g, '');
+            if (!telefone.startsWith('55')) telefone = '55' + telefone;
+
+            // Salva telefone e marca que precisa de senha
+            userPhoneCache.set(chatId, { telefone, aguardandoSenha: true });
+
+            await telegramBot.sendMessage(
+                chatId,
+                `📱 *Número recebido:* ${telefone}\n\nAgora digite sua *senha* do Atlas:`,
+                { parse_mode: 'Markdown' }
+            );
             return res.sendStatus(200);
         }
 
-        const chatId = message.chat.id;
-        const texto = message.text;
-        const nome = message.from.first_name || 'Usuário';
-        
-        console.log(`📩 Telegram [${nome}]: ${texto}`);
+        // CASO 2: MENSAGEM DE TEXTO
+        if (message.text) {
+            const texto = message.text;
+            
+            // Verifica se está aguardando senha
+            const pendingData = userPhoneCache.get(chatId);
+            if (pendingData?.aguardandoSenha) {
+                // Salva a senha e remove flag
+                userLoginCache.set(chatId, {
+                    telefone: pendingData.telefone,
+                    senha: texto
+                });
+                userPhoneCache.delete(chatId);
 
-        const resposta = await processarTelegram(chatId, texto);
-        await enviarTelegram(chatId, resposta);
+                await telegramBot.sendMessage(
+                    chatId,
+                    `✅ *Login salvo!*\n\nAgora você pode usar o Atlas.\nDigite *ajuda* para começar.`,
+                    { parse_mode: 'Markdown' }
+                );
+                return res.sendStatus(200);
+            }
+
+            // Verifica se já tem login salvo
+            const userData = userLoginCache.get(chatId);
+            if (!userData) {
+                await pedirCompartilharNumero(chatId);
+                return res.sendStatus(200);
+            }
+
+            console.log(`📩 Telegram [${userData.telefone}]: ${texto}`);
+
+            // 🔥 USA O CHAT WEB DE VERDADE COMO MOTOR
+            const resposta = await usarChatWeb(
+                userData.telefone,
+                userData.senha,
+                texto
+            );
+
+            await telegramBot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
+            return res.sendStatus(200);
+        }
 
         res.sendStatus(200);
     } catch (error) {
-        console.error('Erro no webhook do Telegram:', error);
+        console.error('❌ Erro no webhook do Telegram:', error);
         res.sendStatus(500);
     }
 });
