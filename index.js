@@ -718,23 +718,24 @@ async function processar(numero, mensagem) {
 }
 
 // ===========================================
-// PROCESSAR MENSAGEM DO TELEGRAM (VERSÃO CORRETA)
+// PROCESSAR MENSAGEM DO TELEGRAM (COM NÚMERO DO TELEGRAM)
 // ===========================================
-async function processarTelegram(chatId, mensagem) {
+async function processarTelegram(chatId, mensagem, userInfo) {
     try {
-        // 🔥 USA O NÚMERO QUE VOCÊ USA NO WHATSAPP
-        const numeroWhatsApp = '5549984094010';
+        // PEGA O NÚMERO DE TELEFONE DO USUÁRIO DO TELEGRAM
+        // OBS: O TELEGRAM SÓ FORNECE NÚMERO SE O USUÁRIO COMPARTILHOU
+        const telefone = userInfo.phone_number || '5549984094010'; // FALLBACK
         
-        console.log(`📞 Usando número: ${numeroWhatsApp}`);
+        console.log(`📞 Telegram - telefone: ${telefone}`);
         
-        // Processa a mensagem com o número do WhatsApp
-        const resposta = await processar(numeroWhatsApp, mensagem);
+        // USA O NÚMERO DO TELEGRAM (IGUAL AO WHATSAPP)
+        const resposta = await processar(telefone, mensagem);
         
         return resposta;
         
     } catch (error) {
-        console.error('❌ Erro no Telegram:', error);
-        return '❌ Erro ao processar mensagem.';
+        console.error('❌ Erro no Telegram:', error.message);
+        return '❌ Erro ao processar mensagem. Tente novamente.';
     }
 }
 
@@ -791,10 +792,6 @@ app.post('/webhook', async (req, res) => {
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     try {
-        if (!telegramBot) {
-            return res.status(503).json({ error: 'Telegram não configurado' });
-        }
-
         const { message } = req.body;
         if (!message || !message.text) {
             return res.sendStatus(200);
@@ -802,11 +799,17 @@ app.post('/telegram-webhook', async (req, res) => {
 
         const chatId = message.chat.id;
         const texto = message.text;
-        const nome = message.from.first_name || 'Usuário';
         
-        console.log(`📩 Telegram [${nome}]: ${texto}`);
+        // INFORMAÇÕES DO USUÁRIO
+        const userInfo = {
+            first_name: message.from.first_name,
+            username: message.from.username,
+            phone_number: message.from.phone_number // PODE SER NULL
+        };
+        
+        console.log(`📩 Telegram [${userInfo.first_name}]: ${texto}`);
 
-        const resposta = await processarTelegram(chatId, texto);
+        const resposta = await processarTelegram(chatId, texto, userInfo);
         await enviarTelegram(chatId, resposta);
 
         res.sendStatus(200);
