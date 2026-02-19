@@ -32,14 +32,14 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
 // ===========================================
-// CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM
+// CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM (GLOBAL)
 // ===========================================
-const userPhoneCache = new Map();
+global.userPhoneCache = new Map();
 
 // ===========================================
-// CACHE PARA LOGINS DO TELEGRAM
+// CACHE PARA LOGINS DO TELEGRAM (GLOBAL)
 // ===========================================
-const userLoginCache = new Map();
+global.userLoginCache = new Map();
 
 // ===========================================
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
@@ -869,7 +869,7 @@ app.post('/telegram-webhook', async (req, res) => {
             if (!telefone.startsWith('55')) telefone = '55' + telefone;
 
             // Salva telefone e marca que precisa de senha
-            userPhoneCache.set(chatId, { telefone, aguardandoSenha: true });
+            	global.userPhoneCache.set(chatId, { telefone, aguardandoSenha: true });
 
             await telegramBot.sendMessage(
                 chatId,
@@ -884,14 +884,14 @@ app.post('/telegram-webhook', async (req, res) => {
             const texto = message.text;
             
             // Verifica se está aguardando senha
-            const pendingData = userPhoneCache.get(chatId);
+            const pendingData = global.userPhoneCache.get(chatId);
             if (pendingData?.aguardandoSenha) {
                 // Salva a senha e remove flag
-                userLoginCache.set(chatId, {
+                global.userLoginCache.set(chatId, {
                     telefone: pendingData.telefone,
                     senha: texto
                 });
-                userPhoneCache.delete(chatId);
+                global.userPhoneCache.delete(chatId);
 
                 await telegramBot.sendMessage(
                     chatId,
@@ -902,7 +902,7 @@ app.post('/telegram-webhook', async (req, res) => {
             }
 
             // Verifica se já tem login salvo
-            const userData = userLoginCache.get(chatId);
+            const userData = global.userLoginCache.get(chatId);
             if (!userData) {
                 await pedirCompartilharNumero(chatId);
                 return res.sendStatus(200);
