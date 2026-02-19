@@ -118,6 +118,7 @@ async function usarChatWeb(telefone, senha, mensagem) {
     console.log(`🌐 Abrindo Chat Web para ${telefone}...`);
     
     const browser = await puppeteer.launch({ 
+        executablePath: '/usr/bin/chromium',
         headless: true,
         args: ['--no-sandbox']
     });
