@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const moment = require('moment');
+const puppeteer = require('puppeteer');
 // ===========================================
 // CONFIGURAÇÕES DO TELEGRAM (NOVO - MANTENDO WHATSAPP)
 // ===========================================
@@ -31,7 +32,6 @@ const WHAPI_URL = 'https://gate.whapi.cloud';
 const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
-const userCache = new Map();
 
 // ===========================================
 // CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM
