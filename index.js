@@ -31,15 +31,17 @@ const WHAPI_URL = 'https://gate.whapi.cloud';
 const API_URL = 'https://atlas-database.onrender.com/api';
 const userCache = new Map();
 
-// ===========================================
-// CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM (GLOBAL)
-// ===========================================
-global.userPhoneCache = new Map();
+const userCache = new Map();
 
 // ===========================================
-// CACHE PARA LOGINS DO TELEGRAM (GLOBAL)
+// CACHE PARA NÚMEROS COMPARTILHADOS DO TELEGRAM
 // ===========================================
-global.userLoginCache = new Map();
+const userPhoneCache = new Map();
+
+// ===========================================
+// CACHE PARA LOGINS DO TELEGRAM
+// ===========================================
+const userLoginCache = new Map();
 
 // ===========================================
 // BUSCAR DADOS DO USUÁRIO PELO NÚMERO (ÚNICA VERIFICAÇÃO)
@@ -869,7 +871,7 @@ app.post('/telegram-webhook', async (req, res) => {
             if (!telefone.startsWith('55')) telefone = '55' + telefone;
 
             // Salva telefone e marca que precisa de senha
-            	global.userPhoneCache.set(chatId, { telefone, aguardandoSenha: true });
+            	userPhoneCache.set(chatId, { telefone, aguardandoSenha: true });
 
             await telegramBot.sendMessage(
                 chatId,
@@ -884,14 +886,14 @@ app.post('/telegram-webhook', async (req, res) => {
             const texto = message.text;
             
             // Verifica se está aguardando senha
-            const pendingData = global.userPhoneCache.get(chatId);
+            const pendingData = userPhoneCache.get(chatId);
             if (pendingData?.aguardandoSenha) {
                 // Salva a senha e remove flag
-                global.userLoginCache.set(chatId, {
+                userLoginCache.set(chatId, {
                     telefone: pendingData.telefone,
                     senha: texto
                 });
-                global.userPhoneCache.delete(chatId);
+                userPhoneCache.delete(chatId);
 
                 await telegramBot.sendMessage(
                     chatId,
@@ -902,7 +904,7 @@ app.post('/telegram-webhook', async (req, res) => {
             }
 
             // Verifica se já tem login salvo
-            const userData = global.userLoginCache.get(chatId);
+            const userData = userLoginCache.get(chatId);
             if (!userData) {
                 await pedirCompartilharNumero(chatId);
                 return res.sendStatus(200);
