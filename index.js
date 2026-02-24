@@ -15,50 +15,52 @@ const CHAT_WEB_URL = 'https://atlas-4t145.github.io/portal-atlas/chat.html';
 const userSessions = new Map(); // chatId -> { telefone, senha }
 
 // ===========================================
-// WEBHOOK DO TELEGRAM
+// WEBHOOK DO TELEGRAM – VERSÃO QUE CAPTURA RESPOSTA
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
-    const { message } = req.body;
-    if (!message) return res.sendStatus(200);
+    try {
+        const { message } = req.body;
+        if (!message || !message.text) return res.sendStatus(200);
 
-    const chatId = message.chat.id;
-    const text = message.text;
+        const chatId = message.chat.id;
+        const texto = message.text;
 
-    // Fluxo de login (simplificado)
-    if (!userSessions.has(chatId)) {
-        // Primeira mensagem: espera o telefone
-        const telefone = text.replace(/\D/g, '');
-        if (telefone.length >= 10) {
-            userSessions.set(chatId, { telefone, aguardandoSenha: true });
-            await bot.sendMessage(chatId, "📱 Telefone recebido! Agora digite sua senha:");
-        } else {
-            await bot.sendMessage(chatId, "❌ Envie seu número com DDI (ex: 5549984094010)");
+        // ========== FLUXO DE LOGIN (igual ao seu) ==========
+        const pendingData = userPhoneCache.get(chatId);
+        if (pendingData?.aguardandoSenha) {
+            userLoginCache.set(chatId, {
+                telefone: pendingData.telefone,
+                senha: texto
+            });
+            userPhoneCache.delete(chatId);
+            await bot.sendMessage(chatId, "✅ *Login salvo!*\n\nAgora você pode usar o Atlas.", { parse_mode: 'Markdown' });
+            return res.sendStatus(200);
         }
-        return res.sendStatus(200);
+
+        const userData = userLoginCache.get(chatId);
+        if (!userData) {
+            await pedirCompartilharNumero(chatId);
+            return res.sendStatus(200);
+        }
+
+        console.log(`📩 Telegram [${userData.telefone}]: ${texto}`);
+
+        // ========== USA O CHAT WEB E CAPTURA A RESPOSTA ==========
+        const resposta = await usarChatWeb(
+            userData.telefone,
+            userData.senha,
+            texto
+        );
+
+        // ========== ENVIA A RESPOSTA DE VOLTA ==========
+        await bot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('❌ Erro no webhook do Telegram:', error);
+        res.sendStatus(500);
     }
-
-    const session = userSessions.get(chatId);
-    
-    // Aguardando senha
-    if (session.aguardandoSenha) {
-        session.senha = text;
-        session.aguardandoSenha = false;
-        await bot.sendMessage(chatId, "✅ Login realizado! Agora você pode enviar mensagens.");
-        return res.sendStatus(200);
-    }
-
-    // Já logado: processa mensagem
-    console.log(`📩 ${session.telefone}: ${text}`);
-    
-    // 🔥 CHAMA O CHAT WEB VIA HTTP (ABRE NO NAVEGADOR DO USUÁRIO)
-    const chatWebUrl = `${CHAT_WEB_URL}?telefone=${session.telefone}&senha=${session.senha}&mensagem=${encodeURIComponent(text)}&chatId=${chatId}`;
-    
-    // Envia o link para o usuário (ele clica e vê a resposta)
-    await bot.sendMessage(chatId, `🔗 Clique aqui para ver a resposta no Chat Web:\n${chatWebUrl}`);
-
-    res.sendStatus(200);
 });
-
 // ===========================================
 // HEALTH CHECK
 // ===========================================
