@@ -61,6 +61,20 @@ app.post('/telegram-webhook', async (req, res) => {
         res.sendStatus(500);
     }
 });
+
+// ===========================================
+// RECEBER RESPOSTA DO CHAT WEB
+// ===========================================
+app.post('/resposta-telegram', async (req, res) => {
+    const { chatId, resposta } = req.body;
+    
+    // Envia a resposta pro usuário no Telegram
+    await bot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
+    
+    res.sendStatus(200);
+});
+
+
 // ===========================================
 // HEALTH CHECK
 // ===========================================
