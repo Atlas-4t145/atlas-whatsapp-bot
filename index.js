@@ -1,7 +1,6 @@
 const express = require('express');
 const axios = require('axios');
 const moment = require('moment');
-const puppeteer = require('puppeteer');
 // ===========================================
 // CONFIGURAÇÕES DO TELEGRAM (NOVO - MANTENDO WHATSAPP)
 // ===========================================
