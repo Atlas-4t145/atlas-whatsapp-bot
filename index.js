@@ -49,15 +49,27 @@ app.post('/telegram-webhook', async (req, res) => {
 
     // Já logado: processa mensagem
     console.log(`📩 ${session.telefone}: ${text}`);
+
+    // 🔥 ENVIA A MENSAGEM PRO CHAT WEB E RECEBE RESPOSTA
+    try {
+        const resposta = await axios.get(`${CHAT_WEB_URL}/api/processar`, {
+            params: {
+                telefone: session.telefone,
+                senha: session.senha,
+                mensagem: text,
+                chatId: chatId
+            }
+        });
+
+        // Envia a resposta direto no Telegram
+        await bot.sendMessage(chatId, resposta.data.resposta, { parse_mode: 'HTML' });
     
-    // 🔥 CHAMA O CHAT WEB VIA HTTP (ABRE NO NAVEGADOR DO USUÁRIO)
-    const chatWebUrl = `${CHAT_WEB_URL}?telefone=${session.telefone}&senha=${session.senha}&mensagem=${encodeURIComponent(text)}&chatId=${chatId}`;
-    
-    // Envia o link para o usuário (ele clica e vê a resposta)
-    await bot.sendMessage(chatId, `🔗 Clique aqui para ver a resposta no Chat Web:\n${chatWebUrl}`);
+    } catch (error) {
+        console.error('Erro ao chamar Chat Web:', error.message);
+        await bot.sendMessage(chatId, "❌ Erro ao processar mensagem no Chat Web.");
+    }
 
     res.sendStatus(200);
-});
 
 
 
