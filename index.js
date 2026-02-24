@@ -72,6 +72,6 @@ app.get('/health', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     console.log(`🤖 BOT RODANDO NA PORTA ${PORT}`);
-    await bot.setWebHook(`https://atlas-whatsapp-bot-docker.onrender.com/telegram-webhook`);
+    await bot.setWebHook(`https://atlas-whatsapp-bot-1.onrender.com/telegram-webhook`);
     console.log('✅ Webhook registrado');
 });
