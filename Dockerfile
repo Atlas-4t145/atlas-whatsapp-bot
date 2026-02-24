@@ -1,9 +1,8 @@
-# Usa uma imagem que já vem com Chromium e dependências
 FROM browserless/chrome:latest
 
 WORKDIR /app
 
-# Instala Node.js 18 (a imagem browserless/chrome é baseada em Debian e já tem npm)
+# Instala Node.js 18 (a imagem browserless/chrome é baseada em Debian e pode não ter node)
 RUN apt-get update && apt-get install -y curl \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
