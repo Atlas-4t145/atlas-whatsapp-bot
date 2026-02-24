@@ -117,10 +117,9 @@ async function enviarTelegram(chatId, texto) {
 async function usarChatWeb(telefone, senha, mensagem) {
     console.log(`🌐 Abrindo Chat Web para ${telefone}...`);
     
-    const browser = await puppeteer.launch({ 
-        executablePath: '/usr/bin/chromium',
+    const browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox']
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     
     try {
