@@ -11,11 +11,11 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
 const CHAT_WEB_URL = 'https://atlas-4t145.github.io/portal-atlas/chat.html';
 
-// Cache APENAS para guardar telefone/senha (não tem lógica)
+// Cache simples
 const userSessions = new Map(); // chatId -> { telefone, senha }
 
 // ===========================================
-// WEBHOOK DO TELEGRAM - APENAS REPASSA
+// WEBHOOK DO TELEGRAM
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     const { message } = req.body;
@@ -24,13 +24,11 @@ app.post('/telegram-webhook', async (req, res) => {
     const chatId = message.chat.id;
     const text = message.text;
 
-    console.log(`📩 ${chatId}: ${text}`);
-
-    // ===== GERENCIAMENTO DE SESSÃO (SÓ GUARDA CREDENCIAIS) =====
+    // Fluxo de login (simplificado)
     if (!userSessions.has(chatId)) {
-        // Primeira mensagem: guarda telefone
+        // Primeira mensagem: espera o telefone
         const telefone = text.replace(/\D/g, '');
-        if (telefone.length >= 10 && telefone.length <= 13) {
+        if (telefone.length >= 10) {
             userSessions.set(chatId, { telefone, aguardandoSenha: true });
             await bot.sendMessage(chatId, "📱 Telefone recebido! Agora digite sua senha:");
         } else {
@@ -41,54 +39,25 @@ app.post('/telegram-webhook', async (req, res) => {
 
     const session = userSessions.get(chatId);
     
+    // Aguardando senha
     if (session.aguardandoSenha) {
-        // Guarda senha e pronto (não testa nada)
         session.senha = text;
         session.aguardandoSenha = false;
-        await bot.sendMessage(chatId, "✅ Credenciais salvas! Agora você pode enviar mensagens.");
+        await bot.sendMessage(chatId, "✅ Login realizado! Agora você pode enviar mensagens.");
         return res.sendStatus(200);
     }
 
-    // ===== JÁ TEM CREDENCIAIS: REPASSA PARA O CHAT WEB =====
-    try {
-        // Avisa que está processando
-        await bot.sendMessage(chatId, "⏳ Processando...");
-        
-        // Chama o chat.html em modo direto (ele que processa tudo)
-        const chatWebUrl = `${CHAT_WEB_URL}?modo=direto&telefone=${session.telefone}&senha=${session.senha}&mensagem=${encodeURIComponent(text)}&chatId=${chatId}`;
-        
-        // Faz a requisição (o chat.html vai responder via /resposta-telegram)
-        await axios.get(chatWebUrl);
-        
-        console.log(`✅ Repassado para o chat: ${chatId}`);
-        
-    } catch (error) {
-        console.error('❌ Erro ao chamar chat web:', error);
-        await bot.sendMessage(chatId, "❌ Erro de comunicação com o chat. Tente novamente.");
-    }
+    // Já logado: processa mensagem
+    console.log(`📩 ${session.telefone}: ${text}`);
+
+    // 🔥 CHAMA O CHAT WEB VIA LINK (ABRE NO NAVEGADOR DO USUÁRIO)
+    const chatWebUrl = `${CHAT_WEB_URL}?telefone=${session.telefone}&senha=${session.senha}&mensagem=${encodeURIComponent(text)}&chatId=${chatId}`;
+
+    // Envia o link para o usuário (ele clica e vê a resposta)
+    await bot.sendMessage(chatId, `🔗 Clique aqui para ver a resposta no Chat Web:\n${chatWebUrl}`);
 
     res.sendStatus(200);
-});
 
-// ===========================================
-// ROTA PARA RECEBER RESPOSTA DO CHAT WEB
-// ===========================================
-app.post('/resposta-telegram', async (req, res) => {
-    const { chatId, resposta } = req.body;
-    
-    if (!chatId || !resposta) {
-        return res.status(400).json({ error: 'chatId e resposta obrigatórios' });
-    }
-    
-    try {
-        // Só repassa a resposta - não processa nada
-        await bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
-        console.log(`✅ Resposta entregue para ${chatId}`);
-        res.json({ ok: true });
-    } catch (error) {
-        console.error('❌ Erro ao entregar resposta:', error);
-        res.status(500).json({ error: error.message });
-    }
 });
 
 // ===========================================
@@ -104,10 +73,6 @@ app.get('/health', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     console.log(`🤖 BOT RODANDO NA PORTA ${PORT}`);
-    try {
-        await bot.setWebHook(`https://atlas-whatsapp-bot-1.onrender.com/telegram-webhook`);
-        console.log('✅ Webhook registrado');
-    } catch (error) {
-        console.error('❌ Erro ao registrar webhook:', error);
-    }
+    await bot.setWebHook(`https://atlas-whatsapp-bot-1.onrender.com/telegram-webhook`);
+    console.log('✅ Webhook registrado');
 });
