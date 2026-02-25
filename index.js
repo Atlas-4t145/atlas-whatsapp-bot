@@ -1,5 +1,5 @@
-// index.js - BOT TELEGRAM NATIVO (consulta direta à API)
 const express = require('express');
+const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
@@ -9,17 +9,19 @@ app.use(express.json());
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
-// URL da API do Atlas (MESMA do chat.html)
 const API_URL = 'https://atlas-database.onrender.com/api';
 
-// Cache de sessões: chatId -> { token, user, telefone, senha }
-const sessions = new Map();
+// Cache de sessões
+const userSessions = new Map(); // chatId -> { token, user, transactions }
 
 // ===========================================
-// FUNÇÕES AUXILIARES (cópia do chat.html)
+// FUNÇÕES AUXILIARES (copiadas do chat.html)
 // ===========================================
 function formatarMoeda(valor) {
-    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(valor);
 }
 
 function formatarData(dataISO) {
@@ -27,21 +29,58 @@ function formatarData(dataISO) {
     return d.toLocaleDateString('pt-BR');
 }
 
-function limparTelefone(telefone) {
-    return telefone.replace(/\D/g, '');
+// ===========================================
+// FUNÇÕES DE API
+// ===========================================
+async function fazerLogin(telefone, senha) {
+    try {
+        const response = await axios.post(`${API_URL}/login`, {
+            phone: telefone,
+            password: senha
+        });
+        return response.data;
+    } catch (error) {
+        throw new Error(error.response?.data?.error || 'Erro no login');
+    }
+}
+
+async function carregarTransacoes(token) {
+    try {
+        const response = await axios.get(`${API_URL}/transactions`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return response.data;
+    } catch (error) {
+        return [];
+    }
+}
+
+async function criarTransacao(token, transacao) {
+    try {
+        const response = await axios.post(`${API_URL}/transactions`, transacao, {
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        return response.data;
+    } catch (error) {
+        throw new Error(error.response?.data?.error || 'Erro ao criar transação');
+    }
 }
 
 // ===========================================
-// PROCESSAR MENSAGEM (COPIADO DO chat.html)
+// PROCESSADOR DE MENSAGENS (copiado do chat.html)
 // ===========================================
-async function processarMensagem(texto, transacoes, usuario) {
+async function processarMensagem(texto, session) {
     const msg = texto.toLowerCase().trim();
     const hoje = new Date();
     const mesAtual = hoje.getMonth() + 1;
     const anoAtual = hoje.getFullYear();
+    const transacoes = session.transactions;
 
     // -----------------------------------------
-    // 1-6. REGISTROS (FLEXÍVEL)
+    // 1-6. REGISTROS
     // -----------------------------------------
 
     // Despesa simples
@@ -49,17 +88,19 @@ async function processarMensagem(texto, transacoes, usuario) {
     if (matchSimples) {
         const valor = parseFloat(matchSimples[3].replace(',', '.'));
         const desc = matchSimples[2].charAt(0).toUpperCase() + matchSimples[2].slice(1);
-        return {
-            acao: 'criar_transacao',
-            dados: {
-                type: 'expense',
-                amount: valor,
-                name: desc,
-                category: 'outros',
-                date: hoje.toISOString().split('T')[0]
-            },
-            resposta: `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)}`
-        };
+        
+        await criarTransacao(session.token, {
+            type: 'expense',
+            amount: valor,
+            name: desc,
+            category: 'outros',
+            date: hoje.toISOString().split('T')[0]
+        });
+        
+        // Atualizar transações na sessão
+        session.transactions = await carregarTransacoes(session.token);
+        
+        return `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)}`;
     }
 
     // Despesa com data
@@ -71,17 +112,16 @@ async function processarMensagem(texto, transacoes, usuario) {
         if (matchData[3] === 'ontem') data.setDate(data.getDate() - 1);
         if (matchData[3] === 'amanhã') data.setDate(data.getDate() + 1);
         
-        return {
-            acao: 'criar_transacao',
-            dados: {
-                type: 'expense',
-                amount: valor,
-                name: desc,
-                category: 'outros',
-                date: data.toISOString().split('T')[0]
-            },
-            resposta: `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)} (${matchData[3]})`
-        };
+        await criarTransacao(session.token, {
+            type: 'expense',
+            amount: valor,
+            name: desc,
+            category: 'outros',
+            date: data.toISOString().split('T')[0]
+        });
+        
+        session.transactions = await carregarTransacoes(session.token);
+        return `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)} (${matchData[3]})`;
     }
 
     // Despesa com vencimento
@@ -95,19 +135,18 @@ async function processarMensagem(texto, transacoes, usuario) {
         data.setDate(dia);
         if (data < hoje) data.setMonth(data.getMonth() + 1);
 
-        return {
-            acao: 'criar_transacao',
-            dados: {
-                type: 'expense',
-                amount: valor,
-                name: desc,
-                category: 'outros',
-                date: data.toISOString().split('T')[0],
-                due_day: dia,
-                recurrence_type: 'fixed'
-            },
-            resposta: `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)} (vence dia ${dia})`
-        };
+        await criarTransacao(session.token, {
+            type: 'expense',
+            amount: valor,
+            name: desc,
+            category: 'outros',
+            date: data.toISOString().split('T')[0],
+            due_day: dia,
+            recurrence_type: 'fixed'
+        });
+        
+        session.transactions = await carregarTransacoes(session.token);
+        return `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)} (vence dia ${dia})`;
     }
 
     // Despesa parcelada
@@ -118,35 +157,74 @@ async function processarMensagem(texto, transacoes, usuario) {
         const parcelas = parseInt(matchParc[3]);
         const valorParcela = total / parcelas;
 
-        return {
-            acao: 'criar_parceladas',
-            dados: {
-                desc,
-                total,
-                parcelas,
-                valorParcela
-            },
-            resposta: `✅ Compra parcelada: ${desc} ${formatarMoeda(total)} em ${parcelas}x de ${formatarMoeda(valorParcela)}`
-        };
+        for (let i = 0; i < parcelas; i++) {
+            const dataParcela = new Date();
+            dataParcela.setMonth(dataParcela.getMonth() + i);
+            
+            await criarTransacao(session.token, {
+                type: 'expense',
+                amount: valorParcela,
+                name: `${desc} (${i+1}/${parcelas})`,
+                category: 'outros',
+                date: dataParcela.toISOString().split('T')[0],
+                recurrence_type: 'parceled',
+                current_installment: i+1,
+                total_installments: parcelas
+            });
+        }
+        
+        session.transactions = await carregarTransacoes(session.token);
+        return `✅ Compra parcelada: ${desc} ${formatarMoeda(total)} em ${parcelas}x de ${formatarMoeda(valorParcela)}`;
     }
 
     // Despesa recorrente (academia 120 todo dia 10)
     const matchRecorrente = texto.match(/(.+?)\s+(\d+[.,]?\d*)\s+todo dia\s+(\d+)/);
     if (matchRecorrente) {
-        const valor = parseFloat(matchRecorrente[2].replace(',', '.'));
-        const desc = matchRecorrente[1].charAt(0).toUpperCase() + matchRecorrente[1].slice(1);
-        const dia = parseInt(matchRecorrente[3]);
-        
-        return {
-            acao: 'criar_recorrente',
-            dados: {
-                desc,
-                valor,
-                dia,
-                quantidadeMeses: 12
-            },
-            resposta: `✅ Despesa recorrente: ${desc} ${formatarMoeda(valor)} todo dia ${dia} – geradas 12 parcelas.`
-        };
+        try {
+            const valor = parseFloat(matchRecorrente[2].replace(',', '.'));
+            const desc = matchRecorrente[1].charAt(0).toUpperCase() + matchRecorrente[1].slice(1);
+            const dia = parseInt(matchRecorrente[3]);
+
+            const hoje = new Date();
+            let primeiraData = new Date(hoje.getFullYear(), hoje.getMonth(), dia);
+            if (primeiraData <= hoje) {
+                primeiraData = new Date(hoje.getFullYear(), hoje.getMonth() + 1, dia);
+            }
+
+            const quantidadeMeses = 12;
+            const promessas = [];
+
+            for (let i = 0; i < quantidadeMeses; i++) {
+                const dataTransacao = new Date(primeiraData);
+                dataTransacao.setMonth(primeiraData.getMonth() + i);
+
+                const ano = dataTransacao.getFullYear();
+                const mes = String(dataTransacao.getMonth() + 1).padStart(2, '0');
+                const diaFormatado = String(dataTransacao.getDate()).padStart(2, '0');
+                const dataFormatada = `${ano}-${mes}-${diaFormatado}`;
+
+                promessas.push(
+                    criarTransacao(session.token, {
+                        type: 'expense',
+                        amount: valor,
+                        name: `${desc} (${i+1}/${quantidadeMeses})`,
+                        category: 'outros',
+                        date: dataFormatada,
+                        due_day: dia,
+                        recurrence_type: 'fixed'
+                    })
+                );
+            }
+
+            await Promise.all(promessas);
+            session.transactions = await carregarTransacoes(session.token);
+
+            const primeiraDataStr = primeiraData.toLocaleDateString('pt-BR');
+            return `✅ Despesa recorrente registrada: ${desc} ${formatarMoeda(valor)} todo dia ${dia} – geradas ${quantidadeMeses} parcelas (primeira: ${primeiraDataStr}).`;
+
+        } catch (error) {
+            return `❌ Erro ao registrar despesa recorrente: ${error.message}`;
+        }
     }
 
     // Receita
@@ -155,21 +233,20 @@ async function processarMensagem(texto, transacoes, usuario) {
         const valor = parseFloat(matchRecb[3].replace(',', '.'));
         const desc = matchRecb[2].charAt(0).toUpperCase() + matchRecb[2].slice(1);
         
-        return {
-            acao: 'criar_transacao',
-            dados: {
-                type: 'income',
-                amount: valor,
-                name: desc,
-                category: 'salario',
-                date: hoje.toISOString().split('T')[0]
-            },
-            resposta: `💰 Receita registrada: ${desc} ${formatarMoeda(valor)}`
-        };
+        await criarTransacao(session.token, {
+            type: 'income',
+            amount: valor,
+            name: desc,
+            category: 'salario',
+            date: hoje.toISOString().split('T')[0]
+        });
+        
+        session.transactions = await carregarTransacoes(session.token);
+        return `💰 Receita registrada: ${desc} ${formatarMoeda(valor)}`;
     }
 
     // -----------------------------------------
-    // 7-8. SALDO / STATUS
+    // 7. SALDO / STATUS
     // -----------------------------------------
     if (msg.includes('saldo') || msg.includes('status')) {
         const transacoesMes = transacoes.filter(t => {
@@ -185,22 +262,19 @@ async function processarMensagem(texto, transacoes, usuario) {
         const totalDespesas = transacoes.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
         const saldoTotal = totalReceitas - totalDespesas;
 
-        return {
-            acao: 'responder',
-            resposta: `📊 *STATUS FINANCEIRO*\n\n` +
-                   `📅 Mês atual:\n` +
-                   `💰 Receitas: ${formatarMoeda(receitasMes)}\n` +
-                   `💸 Despesas: ${formatarMoeda(despesasMes)}\n` +
-                   `💵 Saldo: ${formatarMoeda(saldoMes)}\n\n` +
-                   `📈 Acumulado total:\n` +
-                   `💰 Total receitas: ${formatarMoeda(totalReceitas)}\n` +
-                   `💸 Total despesas: ${formatarMoeda(totalDespesas)}\n` +
-                   `💎 Saldo total: ${formatarMoeda(saldoTotal)}`
-        };
+        return `📊 *STATUS FINANCEIRO*\n\n` +
+               `📅 Mês atual:\n` +
+               `💰 Receitas: ${formatarMoeda(receitasMes)}\n` +
+               `💸 Despesas: ${formatarMoeda(despesasMes)}\n` +
+               `💵 Saldo: ${formatarMoeda(saldoMes)}\n\n` +
+               `📈 Acumulado total:\n` +
+               `💰 Total receitas: ${formatarMoeda(totalReceitas)}\n` +
+               `💸 Total despesas: ${formatarMoeda(totalDespesas)}\n` +
+               `💎 Saldo total: ${formatarMoeda(saldoTotal)}`;
     }
 
     // -----------------------------------------
-    // 9. CONTAS A PAGAR
+    // 8. CONTAS A PAGAR
     // -----------------------------------------
     if (msg.includes('contas a pagar') || msg.includes('o que tenho pra pagar') || msg.includes('minhas contas')) {
         const hojeData = new Date();
@@ -209,7 +283,7 @@ async function processarMensagem(texto, transacoes, usuario) {
             .map(t => ({ ...t, dataObj: new Date(t.date) }))
             .sort((a, b) => a.dataObj - b.dataObj);
 
-        if (despesas.length === 0) return { acao: 'responder', resposta: "✅ Nenhuma conta a pagar." };
+        if (despesas.length === 0) return "✅ Nenhuma conta a pagar.";
 
         let resposta = "📋 *CONTAS A PAGAR*\n━━━━━━━━━━━━━━\n\n";
         let total = 0;
@@ -255,11 +329,11 @@ async function processarMensagem(texto, transacoes, usuario) {
         }
 
         resposta += `━━━━━━━━━━━━━━\n💰 *Total: ${formatarMoeda(total)}*`;
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
-    // 10. MAIORES CONTAS
+    // 9. MAIORES CONTAS
     // -----------------------------------------
     if (msg.includes('maiores contas') || msg.includes('gastos maiores') || msg.includes('top gastos')) {
         const despesas = transacoes
@@ -267,17 +341,17 @@ async function processarMensagem(texto, transacoes, usuario) {
             .sort((a, b) => Number(b.amount) - Number(a.amount))
             .slice(0, 10);
 
-        if (!despesas.length) return { acao: 'responder', resposta: "Nenhuma despesa encontrada." };
+        if (!despesas.length) return "Nenhuma despesa encontrada.";
 
         let resposta = "💰 *MAIORES CONTAS*\n━━━━━━━━━━━━━━\n\n";
         despesas.forEach((t, i) => {
             resposta += `${i+1}. ${t.name}: ${formatarMoeda(t.amount)} (${formatarData(t.date)})\n`;
         });
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
-    // 11. PRÓXIMO MÊS
+    // 10. PRÓXIMO MÊS
     // -----------------------------------------
     if (msg.includes('mês que vem') || msg.includes('próximo mês')) {
         let mes = mesAtual + 1;
@@ -289,7 +363,7 @@ async function processarMensagem(texto, transacoes, usuario) {
             return t.type === 'expense' && d.getMonth() + 1 === mes && d.getFullYear() === ano;
         }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        if (!despesas.length) return { acao: 'responder', resposta: `📅 *${mes}/${ano}*\n\nNenhuma despesa cadastrada.` };
+        if (!despesas.length) return `📅 *${mes}/${ano}*\n\nNenhuma despesa cadastrada.`;
 
         let resposta = `📅 *PRÓXIMO MÊS (${mes}/${ano})*\n━━━━━━━━━━━━━━\n\n`;
         let total = 0;
@@ -298,16 +372,17 @@ async function processarMensagem(texto, transacoes, usuario) {
             total += Number(t.amount);
         });
         resposta += `\n━━━━━━━━━━━━━━\n💰 *Total: ${formatarMoeda(total)}*`;
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
-    // 12-13. ONDE GASTO MAIS (CATEGORIAS + CONTAS)
+    // 11. ONDE GASTO MAIS
     // -----------------------------------------
     if (msg.includes('onde gasto mais') || msg.includes('categorias') || msg.includes('meus gastos')) {
         const despesas = transacoes.filter(t => t.type === 'expense');
-        if (!despesas.length) return { acao: 'responder', resposta: "Nenhuma despesa encontrada." };
+        if (!despesas.length) return "Nenhuma despesa encontrada.";
 
+        // Top categorias
         const cats = {};
         despesas.forEach(t => {
             const cat = t.category || 'outros';
@@ -327,6 +402,7 @@ async function processarMensagem(texto, transacoes, usuario) {
             resposta += `• ${cat}: ${formatarMoeda(valor)} (${perc}%)\n`;
         });
 
+        // Top contas
         const topContas = [...despesas]
             .sort((a, b) => Number(b.amount) - Number(a.amount))
             .slice(0, 5);
@@ -336,11 +412,11 @@ async function processarMensagem(texto, transacoes, usuario) {
             resposta += `• ${t.name}: ${formatarMoeda(t.amount)}\n`;
         });
 
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
-    // 14-16. CONSULTA POR CATEGORIA
+    // 12-16. CONSULTA POR CATEGORIA
     // -----------------------------------------
     const catsLista = ['alimentação', 'moradia', 'transporte', 'saúde', 'educação', 'lazer', 'cartão', 'supermercado', 'ifood', 'academia', 'aluguel', 'internet', 'água', 'luz'];
     for (let cat of catsLista) {
@@ -350,7 +426,7 @@ async function processarMensagem(texto, transacoes, usuario) {
                 (t.category?.toLowerCase().includes(cat) || t.name?.toLowerCase().includes(cat))
             ).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-            if (!filtradas.length) return { acao: 'responder', resposta: `Nenhum gasto com *${cat}*.` };
+            if (!filtradas.length) return `Nenhum gasto com *${cat}*.`;
 
             let resposta = `🍔 *GASTOS COM ${cat.toUpperCase()}*\n━━━━━━━━━━━━━━\n\n`;
             let total = 0;
@@ -359,7 +435,7 @@ async function processarMensagem(texto, transacoes, usuario) {
                 total += Number(t.amount);
             });
             resposta += `\n━━━━━━━━━━━━━━\n💰 *Total: ${formatarMoeda(total)}*`;
-            return { acao: 'responder', resposta };
+            return resposta;
         }
     }
 
@@ -395,7 +471,7 @@ async function processarMensagem(texto, transacoes, usuario) {
             resposta += `📌 *Principais gastos:*\n`;
             top3.forEach(t => resposta += `• ${t.name}: ${formatarMoeda(t.amount)}\n`);
         }
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
@@ -426,14 +502,11 @@ async function processarMensagem(texto, transacoes, usuario) {
 
         const seta = v => v > 0 ? '📈' : v < 0 ? '📉' : '➡️';
 
-        return {
-            acao: 'responder',
-            resposta: `📊 *COMPARATIVO*\n` +
-                   `${mesPassado}/${anoPassado} → ${mesAtual}/${anoAtual}\n━━━━━━━━━━━━━━\n\n` +
-                   `💰 Receitas:\n  Antes: ${formatarMoeda(recPass)}\n  Agora: ${formatarMoeda(recAtual)}\n  ${seta(diffRec)} ${diffRec > 0 ? '+' : ''}${formatarMoeda(diffRec)}\n\n` +
-                   `💸 Despesas:\n  Antes: ${formatarMoeda(despPass)}\n  Agora: ${formatarMoeda(despAtual)}\n  ${seta(diffDesp)} ${diffDesp > 0 ? '+' : ''}${formatarMoeda(diffDesp)}\n\n` +
-                   `💵 Saldo:\n  Antes: ${formatarMoeda(recPass - despPass)}\n  Agora: ${formatarMoeda(recAtual - despAtual)}\n  ${seta(diffSaldo)} ${diffSaldo > 0 ? '+' : ''}${formatarMoeda(diffSaldo)}`
-        };
+        return `📊 *COMPARATIVO*\n` +
+               `${mesPassado}/${anoPassado} → ${mesAtual}/${anoAtual}\n━━━━━━━━━━━━━━\n\n` +
+               `💰 Receitas:\n  Antes: ${formatarMoeda(recPass)}\n  Agora: ${formatarMoeda(recAtual)}\n  ${seta(diffRec)} ${diffRec > 0 ? '+' : ''}${formatarMoeda(diffRec)}\n\n` +
+               `💸 Despesas:\n  Antes: ${formatarMoeda(despPass)}\n  Agora: ${formatarMoeda(despAtual)}\n  ${seta(diffDesp)} ${diffDesp > 0 ? '+' : ''}${formatarMoeda(diffDesp)}\n\n` +
+               `💵 Saldo:\n  Antes: ${formatarMoeda(recPass - despPass)}\n  Agora: ${formatarMoeda(recAtual - despAtual)}\n  ${seta(diffSaldo)} ${diffSaldo > 0 ? '+' : ''}${formatarMoeda(diffSaldo)}`;
     }
 
     // -----------------------------------------
@@ -448,7 +521,7 @@ async function processarMensagem(texto, transacoes, usuario) {
         };
         const mesNome = matchExtMes[1].toLowerCase();
         const mesNum = meses[mesNome];
-        if (!mesNum) return { acao: 'responder', resposta: "Mês inválido." };
+        if (!mesNum) return "Mês inválido.";
 
         const ano = msg.match(/\b(20\d{2})\b/)?.[1] || anoAtual;
         const filtradas = transacoes.filter(t => {
@@ -456,7 +529,7 @@ async function processarMensagem(texto, transacoes, usuario) {
             return d.getMonth() + 1 === mesNum && d.getFullYear() == ano;
         }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        if (!filtradas.length) return { acao: 'responder', resposta: `Nenhuma transação em ${mesNome}/${ano}.` };
+        if (!filtradas.length) return `Nenhuma transação em ${mesNome}/${ano}.`;
 
         const receitas = filtradas.filter(t => t.type === 'income');
         const despesas = filtradas.filter(t => t.type === 'expense');
@@ -475,7 +548,7 @@ async function processarMensagem(texto, transacoes, usuario) {
             resposta += `  Total: ${formatarMoeda(totalD)}\n\n`;
         }
         resposta += `━━━━━━━━━━━━━━\n💵 *Saldo: ${formatarMoeda(totalR - totalD)}*`;
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
@@ -486,7 +559,7 @@ async function processarMensagem(texto, transacoes, usuario) {
         const ano = parseInt(matchAno[1]);
         const filtradas = transacoes.filter(t => new Date(t.date).getFullYear() === ano);
 
-        if (!filtradas.length) return { acao: 'responder', resposta: `Nenhuma transação em ${ano}.` };
+        if (!filtradas.length) return `Nenhuma transação em ${ano}.`;
 
         const meses = Array(12).fill().map(() => ({ receitas: 0, despesas: 0 }));
         filtradas.forEach(t => {
@@ -511,193 +584,38 @@ async function processarMensagem(texto, transacoes, usuario) {
         resposta += `━━━━━━━━━━━━━━\n💰 Total receitas: ${formatarMoeda(totalR)}\n`;
         resposta += `💸 Total despesas: ${formatarMoeda(totalD)}\n`;
         resposta += `💎 *Saldo anual: ${formatarMoeda(totalR - totalD)}*`;
-        return { acao: 'responder', resposta };
+        return resposta;
     }
 
     // -----------------------------------------
-    // 21. AJUDA (COMANDOS)
+    // 21. AJUDA
     // -----------------------------------------
     if (msg === 'ajuda' || msg === 'help' || msg === 'comandos') {
-        return {
-            acao: 'responder',
-            resposta: `🤖 *COMANDOS DO ATLAS*\n\n` +
-                   `📝 *Registrar:*\n` +
-                   `• pagar luz 150\n` +
-                   `• ifood 89 ontem\n` +
-                   `• aluguel 2500 dia 10\n` +
-                   `• celular 3000 10x\n` +
-                   `• academia 120 todo dia 10\n` +
-                   `• recebi salario 5000\n\n` +
-                   `📊 *Consultar:*\n` +
-                   `• contas a pagar\n` +
-                   `• status / saldo\n` +
-                   `• maiores contas\n` +
-                   `• mês que vem\n` +
-                   `• onde gasto mais\n` +
-                   `• alimentação (ou outra categoria)\n` +
-                   `• resumo semanal\n` +
-                   `• comparar com mês passado\n` +
-                   `• extrato janeiro\n` +
-                   `• extrato 2025`
-        };
+        return `🤖 *COMANDOS DO ATLAS*\n\n` +
+               `📝 *Registrar:*\n` +
+               `• pagar luz 150\n` +
+               `• ifood 89 ontem\n` +
+               `• aluguel 2500 dia 10\n` +
+               `• celular 3000 10x\n` +
+               `• academia 120 todo dia 10\n` +
+               `• recebi salario 5000\n\n` +
+               `📊 *Consultar:*\n` +
+               `• contas a pagar\n` +
+               `• status / saldo\n` +
+               `• maiores contas\n` +
+               `• mês que vem\n` +
+               `• onde gasto mais\n` +
+               `• alimentação (ou outra categoria)\n` +
+               `• resumo semanal\n` +
+               `• comparar com mês passado\n` +
+               `• extrato janeiro\n` +
+               `• extrato 2025`;
     }
 
     // -----------------------------------------
     // 22. NÃO ENTENDEU
     // -----------------------------------------
-    return {
-        acao: 'responder',
-        resposta: "❓ *Não entendi*\n\nDigite *ajuda* para ver os comandos disponíveis."
-    };
-}
-
-// ===========================================
-// FLUXO DE LOGIN (IGUAL AO chat.html)
-// ===========================================
-async function fazerLogin(chatId, telefone, senha) {
-    try {
-        console.log(`📡 Login para ${telefone}`);
-        
-        const response = await fetch(`${API_URL}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: telefone, password: senha })
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Erro no login');
-
-        // Login bem sucedido
-        sessions.set(chatId, {
-            token: data.token,
-            user: data.user,
-            telefone,
-            senha
-        });
-
-        await bot.sendMessage(chatId, 
-            `✅ *Login realizado com sucesso!*\n\n` +
-            `👋 Olá *${data.user.name}*! Agora você pode usar o Atlas diretamente pelo Telegram.\n\n` +
-            `Digite *ajuda* para ver os comandos disponíveis.`,
-            { parse_mode: 'Markdown' }
-        );
-
-        return true;
-    } catch (error) {
-        console.error('❌ Erro no login:', error.message);
-        await bot.sendMessage(chatId, `❌ *Erro no login:* ${error.message}`, { parse_mode: 'Markdown' });
-        return false;
-    }
-}
-
-// ===========================================
-// EXECUTAR AÇÃO (criar transação na API)
-// ===========================================
-async function executarAcao(chatId, acao, token) {
-    if (!acao.acao || acao.acao === 'responder') {
-        return acao.resposta;
-    }
-
-    if (acao.acao === 'criar_transacao') {
-        try {
-            const response = await fetch(`${API_URL}/transactions`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(acao.dados)
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Erro ao criar transação');
-            }
-
-            return acao.resposta;
-        } catch (error) {
-            return `❌ Erro ao registrar: ${error.message}`;
-        }
-    }
-
-    if (acao.acao === 'criar_parceladas') {
-        try {
-            const { desc, total, parcelas, valorParcela } = acao.dados;
-            const hoje = new Date();
-
-            for (let i = 0; i < parcelas; i++) {
-                const dataParcela = new Date();
-                dataParcela.setMonth(hoje.getMonth() + i);
-
-                await fetch(`${API_URL}/transactions`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        type: 'expense',
-                        amount: valorParcela,
-                        name: `${desc} (${i+1}/${parcelas})`,
-                        category: 'outros',
-                        date: dataParcela.toISOString().split('T')[0],
-                        recurrence_type: 'parceled',
-                        current_installment: i+1,
-                        total_installments: parcelas
-                    })
-                });
-            }
-
-            return acao.resposta;
-        } catch (error) {
-            return `❌ Erro ao registrar parcelas: ${error.message}`;
-        }
-    }
-
-    if (acao.acao === 'criar_recorrente') {
-        try {
-            const { desc, valor, dia, quantidadeMeses } = acao.dados;
-            const hoje = new Date();
-            
-            let primeiraData = new Date(hoje.getFullYear(), hoje.getMonth(), dia);
-            if (primeiraData <= hoje) {
-                primeiraData = new Date(hoje.getFullYear(), hoje.getMonth() + 1, dia);
-            }
-
-            for (let i = 0; i < quantidadeMeses; i++) {
-                const dataTransacao = new Date(primeiraData);
-                dataTransacao.setMonth(primeiraData.getMonth() + i);
-
-                const ano = dataTransacao.getFullYear();
-                const mes = String(dataTransacao.getMonth() + 1).padStart(2, '0');
-                const diaFormatado = String(dataTransacao.getDate()).padStart(2, '0');
-                const dataFormatada = `${ano}-${mes}-${diaFormatado}`;
-
-                await fetch(`${API_URL}/transactions`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        type: 'expense',
-                        amount: valor,
-                        name: `${desc} (${i+1}/${quantidadeMeses})`,
-                        category: 'outros',
-                        date: dataFormatada,
-                        due_day: dia,
-                        recurrence_type: 'fixed'
-                    })
-                });
-            }
-
-            return acao.resposta;
-        } catch (error) {
-            return `❌ Erro ao registrar recorrente: ${error.message}`;
-        }
-    }
-
-    return acao.resposta;
+    return "❓ *Não entendi*\n\nDigite *ajuda* para ver os comandos disponíveis.";
 }
 
 // ===========================================
@@ -710,105 +628,83 @@ app.post('/telegram-webhook', async (req, res) => {
     const chatId = message.chat.id;
     const text = message.text;
 
-    // Verificar se já está logado
-    const session = sessions.get(chatId);
-
-    // Se NÃO está logado
-    if (!session) {
-        // Se for a primeira mensagem, inicia fluxo de login
-        const telefone = limparTelefone(text);
-        
-        if (telefone.length >= 10) {
-            // Recebeu telefone, agora espera senha
-            sessions.set(chatId, { aguardandoSenha: true, telefone });
-            await bot.sendMessage(chatId, "📱 Telefone recebido! Agora digite sua senha:");
-        } else if (sessions.get(chatId)?.aguardandoSenha) {
-            // Está aguardando senha
-            const senha = text;
-            const telefone = sessions.get(chatId).telefone;
-            
-            // Tenta fazer login
-            const sucesso = await fazerLogin(chatId, telefone, senha);
-            
-            if (!sucesso) {
-                sessions.delete(chatId);
-                await bot.sendMessage(chatId, "❌ Login falhou. Digite seu telefone para tentar novamente:");
-            }
-        } else {
-            // Não está logado e não é número
-            await bot.sendMessage(chatId, 
-                "👋 *Bem-vindo ao Atlas Financeiro!*\n\n" +
-                "Para começar, digite seu telefone (com DDI):\n" +
-                "Exemplo: *5549984094010*",
-                { parse_mode: 'Markdown' }
-            );
-        }
-        
-        return res.sendStatus(200);
-    }
-
-    // JÁ ESTÁ LOGADO
     try {
-        // Carregar transações atuais
-        const transacoesResponse = await fetch(`${API_URL}/transactions`, {
-            headers: { 'Authorization': `Bearer ${session.token}` }
-        });
-        const transacoes = await transacoesResponse.json();
+        // Se não tem sessão, aguarda telefone
+        if (!userSessions.has(chatId)) {
+            // Se é a primeira mensagem, pede telefone
+            if (!message.text.startsWith('/start') && !message.text.match(/^\d/)) {
+                await bot.sendMessage(chatId, "👋 *Bem-vindo ao Atlas Financeiro!*\n\nPara começar, digite seu *telefone com DDI*.\n\nExemplo: `554984094010`", { parse_mode: 'Markdown' });
+                return res.sendStatus(200);
+            }
 
-        // Processar mensagem (igual ao chat.html)
-        const resultado = await processarMensagem(text, transacoes, session.user);
+            const telefone = text.replace(/\D/g, '');
+            
+            if (telefone.length >= 10) {
+                // Salva na sessão que está aguardando senha
+                userSessions.set(chatId, { telefone, aguardandoSenha: true });
+                await bot.sendMessage(chatId, "📱 Telefone recebido! Agora digite sua *senha*:", { parse_mode: 'Markdown' });
+            } else {
+                await bot.sendMessage(chatId, "❌ Telefone inválido. Digite com DDI (ex: 554984094010)");
+            }
+            return res.sendStatus(200);
+        }
 
-        // Executar ação necessária (criar transações na API)
-        const resposta = await executarAcao(chatId, resultado, session.token);
+        const session = userSessions.get(chatId);
+        
+        // Aguardando senha
+        if (session.aguardandoSenha) {
+            try {
+                // Tenta fazer login
+                const loginData = await fazerLogin(session.telefone, text);
+                
+                // Login OK! Salva token e carrega transações
+                session.token = loginData.token;
+                session.user = loginData.user;
+                session.aguardandoSenha = false;
+                session.transactions = await carregarTransacoes(session.token);
+                
+                await bot.sendMessage(chatId, 
+                    `✅ *Login realizado com sucesso!*\n\n` +
+                    `👤 Usuário: ${loginData.user.name}\n` +
+                    `📊 Transações carregadas: ${session.transactions.length}\n\n` +
+                    `Digite *ajuda* para ver os comandos disponíveis.`, 
+                    { parse_mode: 'Markdown' }
+                );
+                
+            } catch (error) {
+                await bot.sendMessage(chatId, `❌ Erro no login: ${error.message}`);
+                // Remove sessão para recomeçar
+                userSessions.delete(chatId);
+            }
+            
+            return res.sendStatus(200);
+        }
 
-        // Enviar resposta
+        // JÁ LOGADO: processa a mensagem com TODAS as funções do chat.html
+        console.log(`📩 ${session.user.name}: ${text}`);
+        
+        // Mostra "digitando..." enquanto processa
+        await bot.sendChatAction(chatId, 'typing');
+        
+        // Processa a mensagem (usa a função completa do chat.html)
+        const resposta = await processarMensagem(text, session);
+        
+        // Envia a resposta direto no Telegram
         await bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
 
     } catch (error) {
-        console.error('❌ Erro ao processar:', error);
-        
-        // Se token expirou, tentar relogar
-        if (error.message.includes('Token') || error.message.includes('401')) {
-            sessions.delete(chatId);
-            await bot.sendMessage(chatId, 
-                "⏰ *Sessão expirada!*\n\nDigite seu telefone para fazer login novamente:",
-                { parse_mode: 'Markdown' }
-            );
-        } else {
-            await bot.sendMessage(chatId, `❌ Erro: ${error.message}`);
-        }
+        console.error('❌ Erro no webhook:', error);
+        await bot.sendMessage(chatId, `❌ Erro interno: ${error.message}`);
     }
 
     res.sendStatus(200);
 });
 
 // ===========================================
-// ROTA PARA RECEBER RESPOSTA DO CHAT (caso queira manter compatibilidade)
-// ===========================================
-app.post('/resposta-telegram', express.json(), async (req, res) => {
-    const { chatId, resposta } = req.body;
-    
-    if (chatId && resposta) {
-        try {
-            await bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
-            console.log(`✅ Resposta enviada para ${chatId}`);
-        } catch (error) {
-            console.error('❌ Erro ao enviar:', error);
-        }
-    }
-    
-    res.json({ ok: true });
-});
-
-// ===========================================
 // HEALTH CHECK
 // ===========================================
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'online',
-        sessions: sessions.size,
-        mode: 'Nativo - Consulta direta à API'
-    });
+    res.json({ status: 'online' });
 });
 
 // ===========================================
@@ -816,13 +712,12 @@ app.get('/health', (req, res) => {
 // ===========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
-    console.log(`🤖 BOT ATLAS RODANDO NA PORTA ${PORT}`);
-    console.log(`📡 Conectando à API: ${API_URL}`);
+    console.log(`🤖 BOT RODANDO NA PORTA ${PORT}`);
     
     try {
         await bot.setWebHook(`https://atlas-whatsapp-bot-1.onrender.com/telegram-webhook`);
-        console.log('✅ Webhook registrado no Telegram');
+        console.log('✅ Webhook registrado');
     } catch (error) {
-        console.error('❌ Erro ao registrar webhook:', error.message);
+        console.log('❌ Erro ao registrar webhook:', error.message);
     }
 });
