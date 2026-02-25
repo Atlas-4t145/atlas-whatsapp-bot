@@ -15,7 +15,7 @@ const CHAT_WEB_URL = 'https://atlas-4t145.github.io/portal-atlas/chat.html';
 const userSessions = new Map(); // chatId -> { telefone, senha }
 
 // ===========================================
-// WEBHOOK DO TELEGRAM
+// WEBHOOK DO TELEGRAM - VERSÃO CORRIGIDA
 // ===========================================
 app.post('/telegram-webhook', async (req, res) => {
     const { message } = req.body;
@@ -24,7 +24,7 @@ app.post('/telegram-webhook', async (req, res) => {
     const chatId = message.chat.id;
     const text = message.text;
 
-    // Fluxo de login (simplificado)
+    // ===== FLUXO DE LOGIN =====
     if (!userSessions.has(chatId)) {
         // Primeira mensagem: espera o telefone
         const telefone = text.replace(/\D/g, '');
@@ -47,17 +47,48 @@ app.post('/telegram-webhook', async (req, res) => {
         return res.sendStatus(200);
     }
 
-    // Já logado: processa mensagem
+    // ===== JÁ LOGADO: PROCESSA MENSAGEM =====
     console.log(`📩 ${session.telefone}: ${text}`);
 
-    // 🔥 CHAMA O CHAT WEB VIA LINK (ABRE NO NAVEGADOR DO USUÁRIO)
-    const chatWebUrl = `${CHAT_WEB_URL}?telefone=${session.telefone}&senha=${session.senha}&mensagem=${encodeURIComponent(text)}&chatId=${chatId}`;
+    // Envia mensagem de "processando"
+    await bot.sendMessage(chatId, "⏳ Processando sua mensagem...");
 
-    // Envia o link para o usuário (ele clica e vê a resposta)
-    await bot.sendMessage(chatId, `🔗 Clique aqui para ver a resposta no Chat Web:\n${chatWebUrl}`);
+    try {
+        // 🔥 CHAMA O CHAT WEB EM MODO DIRETO (SEM ABRIR NAVEGADOR)
+        const chatWebUrl = `${CHAT_WEB_URL}?modo=direto&telefone=${session.telefone}&senha=${session.senha}&mensagem=${encodeURIComponent(text)}&chatId=${chatId}`;
+        
+        // Faz a requisição para o chat.html (ele vai processar e responder via webhook)
+        await axios.get(chatWebUrl);
+        
+        console.log(`✅ Chat processando: ${chatId}`);
+        
+    } catch (error) {
+        console.error('❌ Erro ao chamar chat web:', error);
+        await bot.sendMessage(chatId, "❌ Erro ao processar. Tente novamente.");
+    }
 
     res.sendStatus(200);
+});
 
+// ===========================================
+// ROTA PARA RECEBER RESPOSTA DO CHAT WEB
+// ===========================================
+app.post('/resposta-telegram', async (req, res) => {
+    const { chatId, resposta } = req.body;
+    
+    if (!chatId || !resposta) {
+        return res.status(400).json({ error: 'chatId e resposta obrigatórios' });
+    }
+    
+    try {
+        // Envia a resposta para o usuário no Telegram
+        await bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
+        console.log(`✅ Resposta enviada para ${chatId}`);
+        res.json({ ok: true });
+    } catch (error) {
+        console.error('❌ Erro ao enviar resposta:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // ===========================================
@@ -73,6 +104,10 @@ app.get('/health', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     console.log(`🤖 BOT RODANDO NA PORTA ${PORT}`);
-    await bot.setWebHook(`https://atlas-whatsapp-bot-1.onrender.com/telegram-webhook`);
-    console.log('✅ Webhook registrado');
+    try {
+        await bot.setWebHook(`https://atlas-whatsapp-bot-1.onrender.com/telegram-webhook`);
+        console.log('✅ Webhook registrado');
+    } catch (error) {
+        console.error('❌ Erro ao registrar webhook:', error);
+    }
 });
