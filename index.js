@@ -398,31 +398,58 @@ async function processarMensagem(texto, transacoes, token) {
 
         return resposta;
     }
+    
 
     // -----------------------------------------
-    // CATEGORIAS
-    // -----------------------------------------
-    const catsLista = ['alimentação', 'moradia', 'transporte', 'saúde', 'educação', 'lazer', 'cartão', 'supermercado', 'ifood', 'academia', 'aluguel', 'internet', 'água', 'luz'];
-    for (let cat of catsLista) {
-        if (msg.includes(cat)) {
-            const filtradas = transacoes.filter(t => 
-                t.type === 'expense' && 
-                (t.category?.toLowerCase().includes(cat) || t.name?.toLowerCase().includes(cat))
-            ).sort((a, b) => new Date(a.date) - new Date(b.date));
+// CATEGORIAS (CORRIGIDO COM "OUTROS")
+// -----------------------------------------
+const catsLista = ['alimentação', 'moradia', 'transporte', 'saúde', 'educação', 'lazer', 'cartão', 'supermercado', 'ifood', 'academia', 'aluguel', 'internet', 'água', 'luz'];
+for (let cat of catsLista) {
+    if (msg.includes(cat)) {
+        const filtradas = transacoes.filter(t => {
+            const d = new Date(t.date);
+            return t.type === 'expense' && 
+                   d.getMonth() + 1 === mesAtual && 
+                   d.getFullYear() === anoAtual &&
+                   (t.category?.toLowerCase().includes(cat) || t.name?.toLowerCase().includes(cat));
+        }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-            if (!filtradas.length) return `Nenhum gasto com *${cat}*.`;
+        if (!filtradas.length) return `Nenhum gasto com *${cat}* neste mês.`;
 
-            let resposta = `🍔 *GASTOS COM ${cat.toUpperCase()}*\n━━━━━━━━━━━━━━\n\n`;
-            let total = 0;
-            filtradas.forEach(t => {
-                resposta += `• ${t.name}: ${formatarMoeda(t.amount)} (${formatarData(t.date)})\n`;
-                total += t.amount;
-            });
-            resposta += `\n━━━━━━━━━━━━━━\n💰 *Total: ${formatarMoeda(total)}*`;
-            return resposta;
-        }
+        let resposta = `🍔 *GASTOS COM ${cat.toUpperCase()}*\n━━━━━━━━━━━━━━\n\n`;
+        let total = 0;
+        filtradas.forEach(t => {
+            resposta += `• ${t.name}: ${formatarMoeda(t.amount)} (${formatarData(t.date)})\n`;
+            total += t.amount;
+        });
+        resposta += `\n━━━━━━━━━━━━━━\n💰 *Total: ${formatarMoeda(total)}*`;
+        return resposta;
     }
+}
 
+// -----------------------------------------
+// CATEGORIA "OUTROS" (NOVA)
+// -----------------------------------------
+if (msg.includes('outros')) {
+    const filtradas = transacoes.filter(t => {
+        const d = new Date(t.date);
+        return t.type === 'expense' && 
+               d.getMonth() + 1 === mesAtual && 
+               d.getFullYear() === anoAtual &&
+               (!t.category || t.category === 'outros' || t.category === '');
+    }).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (!filtradas.length) return "Nenhum gasto na categoria *outros* neste mês.";
+
+    let resposta = `📦 *GASTOS COM OUTROS*\n━━━━━━━━━━━━━━\n\n`;
+    let total = 0;
+    filtradas.forEach(t => {
+        resposta += `• ${t.name}: ${formatarMoeda(t.amount)} (${formatarData(t.date)})\n`;
+        total += t.amount;
+    });
+    resposta += `\n━━━━━━━━━━━━━━\n💰 *Total: ${formatarMoeda(total)}*`;
+    return resposta;
+}
     // -----------------------------------------
     // RESUMO SEMANAL
     // -----------------------------------------
@@ -520,13 +547,34 @@ async function processarMensagem(texto, transacoes, token) {
 
         if (!filtradas.length) return `Nenhuma transação em ${ano}.`;
 
+        const meses = Array(12).fill().map(() => ({ receitas: 0, despesas: 0 }));
+        filtradas.forEach(t => {
+            const mes = new Date(t.date).getMonth();
+            if (t.type === 'income') meses[mes].receitas += t.amount;
+            else meses[mes].despesas += t.amount;
+        });
+
+        const nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        let resposta = `📅 *EXTRATO ${ano}*\n━━━━━━━━━━━━━━\n\n`;
+    
+        for (let i = 0; i < 12; i++) {
+            if (meses[i].receitas > 0 || meses[i].despesas > 0) {
+                resposta += `${nomes[i]}:\n`;
+                resposta += `  💰 ${formatarMoeda(meses[i].receitas)}\n`;
+                resposta += `  💸 ${formatarMoeda(meses[i].despesas)}\n`;
+                resposta += `  💵 ${formatarMoeda(meses[i].receitas - meses[i].despesas)}\n\n`;
+            }
+        }
+    
         const totalR = filtradas.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
         const totalD = filtradas.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-
-        return `📅 *EXTRATO ${ano}*\n━━━━━━━━━━━━━━\n\n` +
-               `💰 Receitas: ${formatarMoeda(totalR)}\n` +
-               `💸 Despesas: ${formatarMoeda(totalD)}\n` +
-               `💎 *Saldo: ${formatarMoeda(totalR - totalD)}*`;
+    
+        resposta += `━━━━━━━━━━━━━━\n`;
+        resposta += `💰 Total receitas: ${formatarMoeda(totalR)}\n`;
+        resposta += `💸 Total despesas: ${formatarMoeda(totalD)}\n`;
+        resposta += `💎 *Saldo anual: ${formatarMoeda(totalR - totalD)}*`;
+    
+        return resposta;
     }
 
     // -----------------------------------------
