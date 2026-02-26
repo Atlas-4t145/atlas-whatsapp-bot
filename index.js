@@ -64,8 +64,32 @@ async function carregarTransacoes(token) {
         const response = await axios.get(`${API_URL}/transactions`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        return response.data;
+        
+        // CONVERTE TODOS OS VALORES PARA NÚMERO
+        const transacoes = response.data.map(t => {
+            // Pega o amount e converte para número
+            let valor = t.amount;
+            
+            // Se for string, trata vírgula e ponto
+            if (typeof valor === 'string') {
+                valor = valor.replace(',', '.');
+            }
+            
+            // Converte para número
+            valor = parseFloat(valor) || 0;
+            
+            // Retorna a transação com amount como número
+            return {
+                ...t,
+                amount: valor
+            };
+        });
+        
+        console.log(`✅ Transações carregadas: ${transacoes.length}`);
+        return transacoes;
+        
     } catch (error) {
+        console.error('❌ Erro ao carregar transações:', error.message);
         return [];
     }
 }
