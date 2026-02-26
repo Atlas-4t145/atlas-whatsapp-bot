@@ -109,20 +109,17 @@ async function criarTransacao(token, transacao) {
 }
 
 // ===========================================
-// PROCESSADOR DE MENSAGENS (copiado do chat.html)
+// PROCESSADOR DE MENSAGENS - IGUAL AO CHAT.HTML
 // ===========================================
-async function processarMensagem(texto, session) {
+async function processarMensagem(texto, transacoes) {
     const msg = texto.toLowerCase().trim();
     const hoje = new Date();
     const mesAtual = hoje.getMonth() + 1;
     const anoAtual = hoje.getFullYear();
-    const transacoes = session.transactions;
 
     // -----------------------------------------
     // 1-6. REGISTROS
     // -----------------------------------------
-
-    // Despesa simples
     const matchSimples = msg.match(/(pagar|gastei|comprei)\s+(.+?)\s+(\d+[.,]?\d*)/);
     if (matchSimples) {
         const valor = parseFloat(matchSimples[3].replace(',', '.'));
@@ -135,10 +132,6 @@ async function processarMensagem(texto, session) {
             category: 'outros',
             date: hoje.toISOString().split('T')[0]
         });
-        
-        // Atualizar transações na sessão
-        session.transactions = await carregarTransacoes(session.token);
-        
         return `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)}`;
     }
 
@@ -158,8 +151,6 @@ async function processarMensagem(texto, session) {
             category: 'outros',
             date: data.toISOString().split('T')[0]
         });
-        
-        session.transactions = await carregarTransacoes(session.token);
         return `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)} (${matchData[3]})`;
     }
 
@@ -183,8 +174,6 @@ async function processarMensagem(texto, session) {
             due_day: dia,
             recurrence_type: 'fixed'
         });
-        
-        session.transactions = await carregarTransacoes(session.token);
         return `✅ Despesa registrada: ${desc} ${formatarMoeda(valor)} (vence dia ${dia})`;
     }
 
@@ -211,12 +200,10 @@ async function processarMensagem(texto, session) {
                 total_installments: parcelas
             });
         }
-        
-        session.transactions = await carregarTransacoes(session.token);
         return `✅ Compra parcelada: ${desc} ${formatarMoeda(total)} em ${parcelas}x de ${formatarMoeda(valorParcela)}`;
     }
 
-    // Despesa recorrente (academia 120 todo dia 10)
+    // Despesa recorrente
     const matchRecorrente = texto.match(/(.+?)\s+(\d+[.,]?\d*)\s+todo dia\s+(\d+)/);
     if (matchRecorrente) {
         try {
@@ -231,38 +218,24 @@ async function processarMensagem(texto, session) {
             }
 
             const quantidadeMeses = 12;
-            const promessas = [];
-
             for (let i = 0; i < quantidadeMeses; i++) {
                 const dataTransacao = new Date(primeiraData);
                 dataTransacao.setMonth(primeiraData.getMonth() + i);
+                const dataFormatada = dataTransacao.toISOString().split('T')[0];
 
-                const ano = dataTransacao.getFullYear();
-                const mes = String(dataTransacao.getMonth() + 1).padStart(2, '0');
-                const diaFormatado = String(dataTransacao.getDate()).padStart(2, '0');
-                const dataFormatada = `${ano}-${mes}-${diaFormatado}`;
-
-                promessas.push(
-                    criarTransacao(session.token, {
-                        type: 'expense',
-                        amount: valor,
-                        name: `${desc} (${i+1}/${quantidadeMeses})`,
-                        category: 'outros',
-                        date: dataFormatada,
-                        due_day: dia,
-                        recurrence_type: 'fixed'
-                    })
-                );
+                await criarTransacao(session.token, {
+                    type: 'expense',
+                    amount: valor,
+                    name: `${desc} (${i+1}/${quantidadeMeses})`,
+                    category: 'outros',
+                    date: dataFormatada,
+                    due_day: dia,
+                    recurrence_type: 'fixed'
+                });
             }
-
-            await Promise.all(promessas);
-            session.transactions = await carregarTransacoes(session.token);
-
-            const primeiraDataStr = primeiraData.toLocaleDateString('pt-BR');
-            return `✅ Despesa recorrente registrada: ${desc} ${formatarMoeda(valor)} todo dia ${dia} – geradas ${quantidadeMeses} parcelas (primeira: ${primeiraDataStr}).`;
-
+            return `✅ Despesa recorrente registrada: ${desc} ${formatarMoeda(valor)} todo dia ${dia}`;
         } catch (error) {
-            return `❌ Erro ao registrar despesa recorrente: ${error.message}`;
+            return `❌ Erro: ${error.message}`;
         }
     }
 
@@ -279,13 +252,11 @@ async function processarMensagem(texto, session) {
             category: 'salario',
             date: hoje.toISOString().split('T')[0]
         });
-        
-        session.transactions = await carregarTransacoes(session.token);
         return `💰 Receita registrada: ${desc} ${formatarMoeda(valor)}`;
     }
 
     // -----------------------------------------
-    // 7. SALDO / STATUS
+    // 7. SALDO
     // -----------------------------------------
     if (msg.includes('saldo') || msg.includes('status')) {
         const transacoesMes = transacoes.filter(t => {
@@ -293,29 +264,21 @@ async function processarMensagem(texto, session) {
             return d.getMonth() + 1 === mesAtual && d.getFullYear() === anoAtual;
         });
 
-        const receitasMes = transacoesMes.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-        const despesasMes = transacoesMes.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-        const saldoMes = receitasMes - despesasMes;
-
-        const totalReceitas = transacoes.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-        const totalDespesas = transacoes.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-        const saldoTotal = totalReceitas - totalDespesas;
+        const receitas = transacoesMes.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+        const despesas = transacoesMes.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+        const saldo = receitas - despesas;
 
         return `📊 *STATUS FINANCEIRO*\n\n` +
                `📅 Mês atual: ${formatarMes(mesAtual)}\n` +
-               `💰 Receitas: ${formatarMoeda(receitasMes)}\n` +
-               `💸 Despesas: ${formatarMoeda(despesasMes)}\n` +
-               `💵 Saldo: ${formatarMoeda(saldoMes)}\n\n` +
-               `📈 Acumulado total: ${formatarAno(anoAtual)}\n` +
-               `💰 Total receitas: ${formatarMoeda(totalReceitas)}\n` +
-               `💸 Total despesas: ${formatarMoeda(totalDespesas)}\n` +
-               `💎 Saldo total: ${formatarMoeda(saldoTotal)}`;
+               `💰 Receitas: ${formatarMoeda(receitas)}\n` +
+               `💸 Despesas: ${formatarMoeda(despesas)}\n` +
+               `💵 Saldo: ${formatarMoeda(saldo)}`;
     }
 
     // -----------------------------------------
     // 8. CONTAS A PAGAR
     // -----------------------------------------
-    if (msg.includes('contas a pagar') || msg.includes('o que tenho pra pagar') || msg.includes('minhas contas')) {
+    if (msg.includes('contas a pagar')) {
         const hojeData = new Date();
         const despesas = transacoes
             .filter(t => t.type === 'expense')
@@ -360,7 +323,7 @@ async function processarMensagem(texto, session) {
 
         if (proximosList.length) {
             resposta += `📅 *PRÓXIMOS DIAS*\n`;
-            proximosList.forEach(t => {
+            proximosList.slice(0, 10).forEach(t => {
                 resposta += `• ${t.name}: ${formatarMoeda(t.amount)} (${t.dataObj.toLocaleDateString('pt-BR')})\n`;
                 total += Number(t.amount);
             });
@@ -374,7 +337,7 @@ async function processarMensagem(texto, session) {
     // -----------------------------------------
     // 9. MAIORES CONTAS
     // -----------------------------------------
-    if (msg.includes('maiores contas') || msg.includes('gastos maiores') || msg.includes('top gastos')) {
+    if (msg.includes('maiores contas')) {
         const despesas = transacoes
             .filter(t => t.type === 'expense')
             .sort((a, b) => Number(b.amount) - Number(a.amount))
@@ -392,7 +355,7 @@ async function processarMensagem(texto, session) {
     // -----------------------------------------
     // 10. PRÓXIMO MÊS
     // -----------------------------------------
-    if (msg.includes('mês que vem') || msg.includes('próximo mês')) {
+    if (msg.includes('mês que vem')) {
         let mes = mesAtual + 1;
         let ano = anoAtual;
         if (mes > 12) { mes = 1; ano++; }
@@ -402,7 +365,7 @@ async function processarMensagem(texto, session) {
             return t.type === 'expense' && d.getMonth() + 1 === mes && d.getFullYear() === ano;
         }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        if (!despesas.length) return `📅 *${mes}/${ano}*\n\nNenhuma despesa cadastrada.`;
+        if (!despesas.length) return `📅 *${mes}/${ano}*\n\nNenhuma despesa.`;
 
         let resposta = `📅 *PRÓXIMO MÊS (${mes}/${ano})*\n━━━━━━━━━━━━━━\n\n`;
         let total = 0;
@@ -417,45 +380,35 @@ async function processarMensagem(texto, session) {
     // -----------------------------------------
     // 11. ONDE GASTO MAIS
     // -----------------------------------------
-    if (msg.includes('onde gasto mais') || msg.includes('categorias') || msg.includes('meus gastos')) {
+    if (msg.includes('onde gasto mais')) {
         const despesas = transacoes.filter(t => t.type === 'expense');
-        if (!despesas.length) return "Nenhuma despesa encontrada.";
+        if (!despesas.length) return "Nenhuma despesa.";
 
-        // Top categorias
         const cats = {};
         despesas.forEach(t => {
             const cat = t.category || 'outros';
             cats[cat] = (cats[cat] || 0) + Number(t.amount);
         });
 
-        const topCats = Object.entries(cats)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5);
-
+        const topCats = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 5);
         const totalDespesas = despesas.reduce((s, t) => s + Number(t.amount), 0);
 
-        let resposta = "📊 *ONDE VOCÊ GASTA MAIS*\n━━━━━━━━━━━━━━\n\n";
+        let resposta = "📊 *ONDE GASTA MAIS*\n━━━━━━━━━━━━━━\n\n";
         resposta += "📌 *TOP CATEGORIAS*\n";
         topCats.forEach(([cat, valor]) => {
             const perc = (valor / totalDespesas * 100).toFixed(1);
             resposta += `• ${cat}: ${formatarMoeda(valor)} (${perc}%)\n`;
         });
 
-        // Top contas
-        const topContas = [...despesas]
-            .sort((a, b) => Number(b.amount) - Number(a.amount))
-            .slice(0, 5);
-
+        const topContas = [...despesas].sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 5);
         resposta += `\n📌 *MAIORES CONTAS*\n`;
-        topContas.forEach(t => {
-            resposta += `• ${t.name}: ${formatarMoeda(t.amount)}\n`;
-        });
+        topContas.forEach(t => resposta += `• ${t.name}: ${formatarMoeda(t.amount)}\n`);
 
         return resposta;
     }
 
     // -----------------------------------------
-    // 12-16. CONSULTA POR CATEGORIA
+    // 12-16. CATEGORIAS
     // -----------------------------------------
     const catsLista = ['alimentação', 'moradia', 'transporte', 'saúde', 'educação', 'lazer', 'cartão', 'supermercado', 'ifood', 'academia', 'aluguel', 'internet', 'água', 'luz'];
     for (let cat of catsLista) {
@@ -481,8 +434,7 @@ async function processarMensagem(texto, session) {
     // -----------------------------------------
     // 17. RESUMO SEMANAL
     // -----------------------------------------
-    if (msg.includes('resumo semanal') || msg.includes('essa semana') || msg.includes('gastos da semana')) {
-        const hoje = new Date();
+    if (msg.includes('resumo semanal')) {
         const inicioSemana = new Date(hoje);
         inicioSemana.setDate(hoje.getDate() - hoje.getDay());
         const fimSemana = new Date(inicioSemana);
@@ -493,30 +445,22 @@ async function processarMensagem(texto, session) {
             return d >= inicioSemana && d <= fimSemana;
         });
 
-        const receitas = semana.filter(t => t.type === 'income');
-        const despesas = semana.filter(t => t.type === 'expense');
-        const totalR = receitas.reduce((s, t) => s + Number(t.amount), 0);
-        const totalD = despesas.reduce((s, t) => s + Number(t.amount), 0);
+        const receitas = semana.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+        const despesas = semana.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
 
-        let resposta = `📅 *RESUMO DA SEMANA*\n`;
+        let resposta = `📅 *RESUMO SEMANAL*\n`;
         resposta += `${inicioSemana.toLocaleDateString('pt-BR')} a ${fimSemana.toLocaleDateString('pt-BR')}\n`;
         resposta += `━━━━━━━━━━━━━━\n\n`;
-        resposta += `💰 Receitas: ${formatarMoeda(totalR)}\n`;
-        resposta += `💸 Despesas: ${formatarMoeda(totalD)}\n`;
-        resposta += `💵 Saldo: ${formatarMoeda(totalR - totalD)}\n\n`;
-
-        if (despesas.length) {
-            const top3 = [...despesas].sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 3);
-            resposta += `📌 *Principais gastos:*\n`;
-            top3.forEach(t => resposta += `• ${t.name}: ${formatarMoeda(t.amount)}\n`);
-        }
+        resposta += `💰 Receitas: ${formatarMoeda(receitas)}\n`;
+        resposta += `💸 Despesas: ${formatarMoeda(despesas)}\n`;
+        resposta += `💵 Saldo: ${formatarMoeda(receitas - despesas)}`;
         return resposta;
     }
 
     // -----------------------------------------
-    // 18. COMPARAR COM MÊS PASSADO
+    // 18. COMPARAR
     // -----------------------------------------
-    if (msg.includes('comparar') || msg.includes('mês passado')) {
+    if (msg.includes('comparar')) {
         let mesPassado = mesAtual - 1;
         let anoPassado = anoAtual;
         if (mesPassado === 0) { mesPassado = 12; anoPassado--; }
@@ -535,17 +479,11 @@ async function processarMensagem(texto, session) {
         const recPass = passado.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
         const despPass = passado.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
 
-        const diffRec = recAtual - recPass;
-        const diffDesp = despAtual - despPass;
-        const diffSaldo = (recAtual - despAtual) - (recPass - despPass);
-
-        const seta = v => v > 0 ? '📈' : v < 0 ? '📉' : '➡️';
-
         return `📊 *COMPARATIVO*\n` +
                `${mesPassado}/${anoPassado} → ${mesAtual}/${anoAtual}\n━━━━━━━━━━━━━━\n\n` +
-               `💰 Receitas:\n  Antes: ${formatarMoeda(recPass)}\n  Agora: ${formatarMoeda(recAtual)}\n  ${seta(diffRec)} ${diffRec > 0 ? '+' : ''}${formatarMoeda(diffRec)}\n\n` +
-               `💸 Despesas:\n  Antes: ${formatarMoeda(despPass)}\n  Agora: ${formatarMoeda(despAtual)}\n  ${seta(diffDesp)} ${diffDesp > 0 ? '+' : ''}${formatarMoeda(diffDesp)}\n\n` +
-               `💵 Saldo:\n  Antes: ${formatarMoeda(recPass - despPass)}\n  Agora: ${formatarMoeda(recAtual - despAtual)}\n  ${seta(diffSaldo)} ${diffSaldo > 0 ? '+' : ''}${formatarMoeda(diffSaldo)}`;
+               `💰 Receitas:\n  Antes: ${formatarMoeda(recPass)}\n  Agora: ${formatarMoeda(recAtual)}\n\n` +
+               `💸 Despesas:\n  Antes: ${formatarMoeda(despPass)}\n  Agora: ${formatarMoeda(despAtual)}\n\n` +
+               `💵 Saldo:\n  Antes: ${formatarMoeda(recPass - despPass)}\n  Agora: ${formatarMoeda(recAtual - despAtual)}`;
     }
 
     // -----------------------------------------
@@ -570,24 +508,13 @@ async function processarMensagem(texto, session) {
 
         if (!filtradas.length) return `Nenhuma transação em ${mesNome}/${ano}.`;
 
-        const receitas = filtradas.filter(t => t.type === 'income');
-        const despesas = filtradas.filter(t => t.type === 'expense');
-        const totalR = receitas.reduce((s, t) => s + Number(t.amount), 0);
-        const totalD = despesas.reduce((s, t) => s + Number(t.amount), 0);
+        const receitas = filtradas.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+        const despesas = filtradas.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
 
-        let resposta = `📋 *EXTRATO ${mesNome.toUpperCase()}/${ano}*\n━━━━━━━━━━━━━━\n\n`;
-        if (receitas.length) {
-            resposta += `💰 *Receitas:*\n`;
-            receitas.forEach(t => resposta += `  ${formatarData(t.date)} - ${t.name}: ${formatarMoeda(t.amount)}\n`);
-            resposta += `  Total: ${formatarMoeda(totalR)}\n\n`;
-        }
-        if (despesas.length) {
-            resposta += `💸 *Despesas:*\n`;
-            despesas.forEach(t => resposta += `  ${formatarData(t.date)} - ${t.name}: ${formatarMoeda(t.amount)}\n`);
-            resposta += `  Total: ${formatarMoeda(totalD)}\n\n`;
-        }
-        resposta += `━━━━━━━━━━━━━━\n💵 *Saldo: ${formatarMoeda(totalR - totalD)}*`;
-        return resposta;
+        return `📋 *EXTRATO ${mesNome.toUpperCase()}/${ano}*\n━━━━━━━━━━━━━━\n\n` +
+               `💰 Receitas: ${formatarMoeda(receitas)}\n` +
+               `💸 Despesas: ${formatarMoeda(despesas)}\n` +
+               `💵 Saldo: ${formatarMoeda(receitas - despesas)}`;
     }
 
     // -----------------------------------------
@@ -600,37 +527,20 @@ async function processarMensagem(texto, session) {
 
         if (!filtradas.length) return `Nenhuma transação em ${ano}.`;
 
-        const meses = Array(12).fill().map(() => ({ receitas: 0, despesas: 0 }));
-        filtradas.forEach(t => {
-            const mes = new Date(t.date).getMonth();
-            if (t.type === 'income') meses[mes].receitas += Number(t.amount);
-            else meses[mes].despesas += Number(t.amount);
-        });
-
-        const nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        let resposta = `📅 *EXTRATO ${ano}*\n━━━━━━━━━━━━━━\n\n`;
-        for (let i = 0; i < 12; i++) {
-            if (meses[i].receitas || meses[i].despesas) {
-                resposta += `${nomes[i]}:\n`;
-                resposta += `  💰 ${formatarMoeda(meses[i].receitas)}\n`;
-                resposta += `  💸 ${formatarMoeda(meses[i].despesas)}\n`;
-                resposta += `  💵 ${formatarMoeda(meses[i].receitas - meses[i].despesas)}\n\n`;
-            }
-        }
-
         const totalR = filtradas.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
         const totalD = filtradas.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-        resposta += `━━━━━━━━━━━━━━\n💰 Total receitas: ${formatarMoeda(totalR)}\n`;
-        resposta += `💸 Total despesas: ${formatarMoeda(totalD)}\n`;
-        resposta += `💎 *Saldo anual: ${formatarMoeda(totalR - totalD)}*`;
-        return resposta;
+
+        return `📅 *EXTRATO ${ano}*\n━━━━━━━━━━━━━━\n\n` +
+               `💰 Receitas: ${formatarMoeda(totalR)}\n` +
+               `💸 Despesas: ${formatarMoeda(totalD)}\n` +
+               `💎 *Saldo: ${formatarMoeda(totalR - totalD)}*`;
     }
 
     // -----------------------------------------
     // 21. AJUDA
     // -----------------------------------------
-    if (msg === 'ajuda' || msg === 'help' || msg === 'comandos') {
-        return `🤖 *COMANDOS DO ATLAS*\n\n` +
+    if (msg === 'ajuda' || msg === 'help') {
+        return `🤖 *COMANDOS*\n\n` +
                `📝 *Registrar:*\n` +
                `• pagar luz 150\n` +
                `• ifood 89 ontem\n` +
@@ -639,22 +549,14 @@ async function processarMensagem(texto, session) {
                `• academia 120 todo dia 10\n` +
                `• recebi salario 5000\n\n` +
                `📊 *Consultar:*\n` +
+               `• status\n` +
                `• contas a pagar\n` +
-               `• status / saldo\n` +
                `• maiores contas\n` +
-               `• mês que vem\n` +
                `• onde gasto mais\n` +
-               `• alimentação (ou outra categoria)\n` +
-               `• resumo semanal\n` +
-               `• comparar com mês passado\n` +
-               `• extrato janeiro\n` +
-               `• extrato 2025`;
+               `• extrato fevereiro`;
     }
 
-    // -----------------------------------------
-    // 22. NÃO ENTENDEU
-    // -----------------------------------------
-    return "❓ *Não entendi*\n\nDigite *ajuda* para ver os comandos disponíveis.";
+    return "❓ *Não entendi*\n\nDigite *ajuda* para ver os comandos.";
 }
 
 // ===========================================
