@@ -15,6 +15,7 @@ const API_URL = 'https://atlas-database.onrender.com/api';
 const userSessions = new Map(); // chatId -> { token, user, transactions }
 
 // ===========================================
+// ===========================================
 // FUNÇÕES AUXILIARES (copiadas do chat.html)
 // ===========================================
 function formatarMoeda(valor) {
@@ -27,6 +28,20 @@ function formatarMoeda(valor) {
 function formatarData(dataISO) {
     const d = new Date(dataISO);
     return d.toLocaleDateString('pt-BR');
+}
+
+// 👇 FUNÇÃO PARA MÊS
+function formatarMes(mes) {
+    const meses = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[mes - 1];
+}
+
+// 👇 FUNÇÃO PARA ANO (só retorna o ano mesmo, mas útil pra consistência)
+function formatarAno(ano) {
+    return ano.toString();
 }
 
 // ===========================================
@@ -263,11 +278,11 @@ async function processarMensagem(texto, session) {
         const saldoTotal = totalReceitas - totalDespesas;
 
         return `📊 *STATUS FINANCEIRO*\n\n` +
-               `📅 Mês atual:\n` +
+               `📅 Mês atual: ${formatarMes(mesAtual)}\n` +
                `💰 Receitas: ${formatarMoeda(receitasMes)}\n` +
                `💸 Despesas: ${formatarMoeda(despesasMes)}\n` +
                `💵 Saldo: ${formatarMoeda(saldoMes)}\n\n` +
-               `📈 Acumulado total:\n` +
+               `📈 Acumulado total: ${formatarAno(anoAtual)}\n` +
                `💰 Total receitas: ${formatarMoeda(totalReceitas)}\n` +
                `💸 Total despesas: ${formatarMoeda(totalDespesas)}\n` +
                `💎 Saldo total: ${formatarMoeda(saldoTotal)}`;
