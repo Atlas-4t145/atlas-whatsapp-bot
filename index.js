@@ -736,3 +736,127 @@ app.listen(PORT, async () => {
         console.log('❌ Erro ao registrar webhook:', error.message);
     }
 });
+
+// ===========================================
+// NOTIFICAÇÕES DIÁRIAS AUTOMÁTICAS
+// ===========================================
+
+// Função para enviar notificações para TODOS os usuários
+async function enviarNotificacoesDiarias() {
+    console.log('🔔 Enviando notificações diárias...', new Date().toLocaleString());
+    
+    // Para cada usuário logado no bot
+    for (const [chatId, session] of userSessions.entries()) {
+        try {
+            // Verifica se o token ainda é válido
+            const transacoes = session.transactions || [];
+            const hoje = new Date();
+            const hojeData = new Date(hoje.setHours(0, 0, 0, 0));
+            
+            // Filtra contas a pagar (futuras ou hoje)
+            const contasAPagar = transacoes.filter(t => {
+                if (t.type !== 'expense') return false;
+                if (t.auto_debit === true) return false; // Ignora débito automático
+                
+                const dataVenc = new Date(t.date);
+                dataVenc.setHours(0, 0, 0, 0);
+                
+                // Só contas de hoje pra frente
+                return dataVenc >= hojeData;
+            }).sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            if (contasAPagar.length === 0) {
+                console.log(`✅ Usuário ${chatId} - Nenhuma conta a pagar`);
+                continue;
+            }
+            
+            // Monta mensagem
+            let mensagem = `🔔 *RESUMO DE CONTAS - ${hoje.toLocaleDateString('pt-BR')}*\n\n`;
+            
+            const hojeList = contasAPagar.filter(t => {
+                const d = new Date(t.date);
+                d.setHours(0, 0, 0, 0);
+                return d.getTime() === hojeData.getTime();
+            });
+            
+            const proximosList = contasAPagar.filter(t => {
+                const d = new Date(t.date);
+                d.setHours(0, 0, 0, 0);
+                return d > hojeData;
+            });
+            
+            let totalHoje = 0;
+            let totalProximos = 0;
+            
+            if (hojeList.length > 0) {
+                mensagem += `📅 *VENCEM HOJE:*\n`;
+                hojeList.forEach(t => {
+                    mensagem += `• ${t.name}: ${formatarMoeda(t.amount)}\n`;
+                    totalHoje += Number(t.amount);
+                });
+                mensagem += `\n`;
+            }
+            
+            if (proximosList.length > 0) {
+                mensagem += `📅 *PRÓXIMOS DIAS:*\n`;
+                proximosList.slice(0, 10).forEach(t => {
+                    const data = new Date(t.date).toLocaleDateString('pt-BR');
+                    mensagem += `• ${t.name}: ${formatarMoeda(t.amount)} (${data})\n`;
+                    totalProximos += Number(t.amount);
+                });
+                
+                if (proximosList.length > 10) {
+                    mensagem += `... e mais ${proximosList.length - 10} contas\n`;
+                }
+                mensagem += `\n`;
+            }
+            
+            mensagem += `━━━━━━━━━━━━━━━━━━\n`;
+            mensagem += `💰 *Total hoje:* ${formatarMoeda(totalHoje)}\n`;
+            mensagem += `💰 *Total próximos:* ${formatarMoeda(totalProximos)}\n`;
+            mensagem += `💵 *Total geral:* ${formatarMoeda(totalHoje + totalProximos)}`;
+            
+            // Envia
+            await bot.sendMessage(chatId, mensagem, { parse_mode: 'Markdown' });
+            console.log(`✅ Notificação enviada para ${chatId}`);
+            
+        } catch (error) {
+            console.error(`❌ Erro ao notificar ${chatId}:`, error.message);
+        }
+    }
+}
+
+// Agenda para rodar TODO DIA às 08:00
+const AGORA = new Date();
+const HORA_ALVO = 23; // 8 da manhã
+const MINUTO_ALVO = 45;
+
+// Calcula milliseconds até a próxima 8:00
+const proximaExecucao = new Date(
+    AGORA.getFullYear(),
+    AGORA.getMonth(),
+    AGORA.getDate(),
+    HORA_ALVO,
+    MINUTO_ALVO,
+    0
+);
+
+if (proximaExecucao <= AGORA) {
+    proximaExecucao.setDate(proximaExecucao.getDate() + 1);
+}
+
+const tempoAteProxima = proximaExecucao - AGORA;
+
+console.log(`⏰ Primeira notificação: ${proximaExecucao.toLocaleString()}`);
+console.log(`⏰ Aguardando ${Math.round(tempoAteProxima / 1000 / 60)} minutos...`);
+
+// Agenda a primeira execução
+setTimeout(() => {
+    // Envia agora
+    enviarNotificacoesDiarias();
+    
+    // Depois repete a cada 24h
+    setInterval(enviarNotificacoesDiarias, 24 * 60 * 60 * 1000);
+    
+    console.log('✅ Notificações diárias agendadas para 08:00 todos os dias');
+}, tempoAteProxima);
