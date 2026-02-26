@@ -88,6 +88,15 @@ async function criarTransacao(token, transacao) {
 // PROCESSADOR DE MENSAGENS (IGUAL AO CHAT)
 // ===========================================
 async function processarMensagem(texto, transacoes, token) {
+    
+    // LOG PARA VER O QUE ESTÁ CHEGANDO
+    console.log('========== TRANSAÇÕES RECEBIDAS ==========');
+    console.log('Tipo:', typeof transacoes);
+    console.log('É array?', Array.isArray(transacoes));
+    console.log('Quantidade:', transacoes?.length);
+    console.log('Primeira transação:', JSON.stringify(transacoes?.[0], null, 2));
+    console.log('==========================================');
+    
     // Garantir que transacoes é array
     if (!Array.isArray(transacoes)) {
         transacoes = [];
