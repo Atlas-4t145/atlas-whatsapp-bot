@@ -738,8 +738,12 @@ app.listen(PORT, async () => {
 });
 
 // ===========================================
-// NOTIFICAÇÕES DIÁRIAS - 08:00 TODO DIA
+// NOTIFICAÇÕES DIÁRIAS - HORÁRIO CONFIGURÁVEL
 // ===========================================
+
+// ✅ MUDA SÓ AQUI - coloca a hora que quiser
+const HORA_NOTIFICACAO = 0;    // <-- ALTERA AQUI (0-23)
+const MINUTO_NOTIFICACAO = 2;  // <-- ALTERA AQUI (0-59)
 
 async function enviarNotificacoesDiarias() {
     console.log('🔔 Enviando notificações diárias...', new Date().toLocaleString());
@@ -811,22 +815,24 @@ async function enviarNotificacoesDiarias() {
     }
 }
 
-// Agenda fixa - roda todo dia às 08:00
+// Agenda com as variáveis
 const AGORA = new Date();
-const PROXIMA_08 = new Date(
+const PROXIMA_EXECUCAO = new Date(
     AGORA.getFullYear(),
     AGORA.getMonth(),
     AGORA.getDate(),
-    8, 0, 0
+    HORA_NOTIFICACAO,
+    MINUTO_NOTIFICACAO,
+    0
 );
 
-if (PROXIMA_08 <= AGORA) {
-    PROXIMA_08.setDate(PROXIMA_08.getDate() + 1);
+if (PROXIMA_EXECUCAO <= AGORA) {
+    PROXIMA_EXECUCAO.setDate(PROXIMA_EXECUCAO.getDate() + 1);
 }
 
 setTimeout(() => {
     enviarNotificacoesDiarias();
     setInterval(enviarNotificacoesDiarias, 24 * 60 * 60 * 1000);
-}, PROXIMA_08 - AGORA);
+}, PROXIMA_EXECUCAO - AGORA);
 
-console.log(`⏰ Notificações agendadas para todo dia às 08:00`);
+console.log(`⏰ Notificações agendadas para todo dia às ${HORA_NOTIFICACAO.toString().padStart(2,'0')}:${MINUTO_NOTIFICACAO.toString().padStart(2,'0')}`);
