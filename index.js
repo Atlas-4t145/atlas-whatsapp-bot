@@ -738,39 +738,29 @@ app.listen(PORT, async () => {
 });
 
 // ===========================================
-// NOTIFICAÇÕES DIÁRIAS AUTOMÁTICAS
+// NOTIFICAÇÕES DIÁRIAS - 08:00 TODO DIA
 // ===========================================
 
-// Função para enviar notificações para TODOS os usuários
 async function enviarNotificacoesDiarias() {
     console.log('🔔 Enviando notificações diárias...', new Date().toLocaleString());
     
-    // Para cada usuário logado no bot
     for (const [chatId, session] of userSessions.entries()) {
         try {
-            // Verifica se o token ainda é válido
             const transacoes = session.transactions || [];
             const hoje = new Date();
             const hojeData = new Date(hoje.setHours(0, 0, 0, 0));
             
-            // Filtra contas a pagar (futuras ou hoje)
             const contasAPagar = transacoes.filter(t => {
                 if (t.type !== 'expense') return false;
-                if (t.auto_debit === true) return false; // Ignora débito automático
+                if (t.auto_debit === true) return false;
                 
                 const dataVenc = new Date(t.date);
                 dataVenc.setHours(0, 0, 0, 0);
-                
-                // Só contas de hoje pra frente
                 return dataVenc >= hojeData;
             }).sort((a, b) => new Date(a.date) - new Date(b.date));
             
-            if (contasAPagar.length === 0) {
-                console.log(`✅ Usuário ${chatId} - Nenhuma conta a pagar`);
-                continue;
-            }
+            if (contasAPagar.length === 0) continue;
             
-            // Monta mensagem
             let mensagem = `🔔 *RESUMO DE CONTAS - ${hoje.toLocaleDateString('pt-BR')}*\n\n`;
             
             const hojeList = contasAPagar.filter(t => {
@@ -804,10 +794,6 @@ async function enviarNotificacoesDiarias() {
                     mensagem += `• ${t.name}: ${formatarMoeda(t.amount)} (${data})\n`;
                     totalProximos += Number(t.amount);
                 });
-                
-                if (proximosList.length > 10) {
-                    mensagem += `... e mais ${proximosList.length - 10} contas\n`;
-                }
                 mensagem += `\n`;
             }
             
@@ -816,7 +802,6 @@ async function enviarNotificacoesDiarias() {
             mensagem += `💰 *Total próximos:* ${formatarMoeda(totalProximos)}\n`;
             mensagem += `💵 *Total geral:* ${formatarMoeda(totalHoje + totalProximos)}`;
             
-            // Envia
             await bot.sendMessage(chatId, mensagem, { parse_mode: 'Markdown' });
             console.log(`✅ Notificação enviada para ${chatId}`);
             
@@ -826,37 +811,22 @@ async function enviarNotificacoesDiarias() {
     }
 }
 
-// Agenda para rodar TODO DIA às 08:00
+// Agenda fixa - roda todo dia às 08:00
 const AGORA = new Date();
-const HORA_ALVO = 23; // 8 da manhã
-const MINUTO_ALVO = 45;
-
-// Calcula milliseconds até a próxima 8:00
-const proximaExecucao = new Date(
+const PROXIMA_08 = new Date(
     AGORA.getFullYear(),
     AGORA.getMonth(),
     AGORA.getDate(),
-    HORA_ALVO,
-    MINUTO_ALVO,
-    0
+    8, 0, 0
 );
 
-if (proximaExecucao <= AGORA) {
-    proximaExecucao.setDate(proximaExecucao.getDate() + 1);
+if (PROXIMA_08 <= AGORA) {
+    PROXIMA_08.setDate(PROXIMA_08.getDate() + 1);
 }
 
-const tempoAteProxima = proximaExecucao - AGORA;
-
-console.log(`⏰ Primeira notificação: ${proximaExecucao.toLocaleString()}`);
-console.log(`⏰ Aguardando ${Math.round(tempoAteProxima / 1000 / 60)} minutos...`);
-
-// Agenda a primeira execução
 setTimeout(() => {
-    // Envia agora
     enviarNotificacoesDiarias();
-    
-    // Depois repete a cada 24h
     setInterval(enviarNotificacoesDiarias, 24 * 60 * 60 * 1000);
-    
-    console.log('✅ Notificações diárias agendadas para 08:00 todos os dias');
-}, tempoAteProxima);
+}, PROXIMA_08 - AGORA);
+
+console.log(`⏰ Notificações agendadas para todo dia às 08:00`);
